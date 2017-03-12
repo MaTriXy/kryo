@@ -1,14 +1,60 @@
+/* Copyright (c) 2008, Nathan Sweet
+ * All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
+ * conditions are met:
+ * 
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+ * disclaimer in the documentation and/or other materials provided with the distribution.
+ * - Neither the name of Esoteric Software nor the names of its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+ * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 package com.esotericsoftware.kryo;
 
 import static com.esotericsoftware.kryo.util.Util.*;
 import static com.esotericsoftware.minlog.Log.*;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.Proxy;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.net.URL;
+import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.ConcurrentModificationException;
+import java.util.Currency;
+import java.util.Date;
+import java.util.EnumSet;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TimeZone;
+import java.util.TreeMap;
+import java.util.TreeSet;
+
+import org.objenesis.instantiator.ObjectInstantiator;
+import org.objenesis.strategy.InstantiatorStrategy;
+import org.objenesis.strategy.SerializingInstantiatorStrategy;
+import org.objenesis.strategy.StdInstantiatorStrategy;
+
 import com.esotericsoftware.kryo.factories.PseudoSerializerFactory;
 import com.esotericsoftware.kryo.factories.ReflectionSerializerFactory;
 import com.esotericsoftware.kryo.factories.SerializerFactory;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
+import com.esotericsoftware.kryo.serializers.ClosureSerializer;
 import com.esotericsoftware.kryo.serializers.CollectionSerializer;
 import com.esotericsoftware.kryo.serializers.DefaultArraySerializers.BooleanArraySerializer;
 import com.esotericsoftware.kryo.serializers.DefaultArraySerializers.ByteArraySerializer;
@@ -26,6 +72,7 @@ import com.esotericsoftware.kryo.serializers.DefaultSerializers.BooleanSerialize
 import com.esotericsoftware.kryo.serializers.DefaultSerializers.ByteSerializer;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers.CalendarSerializer;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers.CharSerializer;
+import com.esotericsoftware.kryo.serializers.DefaultSerializers.CharsetSerializer;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers.ClassSerializer;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers.CollectionsEmptyListSerializer;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers.CollectionsEmptyMapSerializer;
@@ -50,44 +97,23 @@ import com.esotericsoftware.kryo.serializers.DefaultSerializers.StringSerializer
 import com.esotericsoftware.kryo.serializers.DefaultSerializers.TimeZoneSerializer;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers.TreeMapSerializer;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers.TreeSetSerializer;
+import com.esotericsoftware.kryo.serializers.DefaultSerializers.URLSerializer;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers.VoidSerializer;
 import com.esotericsoftware.kryo.serializers.FieldSerializer;
+import com.esotericsoftware.kryo.serializers.FieldSerializerConfig;
+import com.esotericsoftware.kryo.serializers.GenericsResolver;
 import com.esotericsoftware.kryo.serializers.MapSerializer;
+import com.esotericsoftware.kryo.serializers.OptionalSerializers;
+import com.esotericsoftware.kryo.serializers.TaggedFieldSerializerConfig;
+import com.esotericsoftware.kryo.serializers.TimeSerializers;
 import com.esotericsoftware.kryo.util.DefaultClassResolver;
 import com.esotericsoftware.kryo.util.DefaultStreamFactory;
-import com.esotericsoftware.kryo.util.FastestStreamFactory;
 import com.esotericsoftware.kryo.util.IdentityMap;
 import com.esotericsoftware.kryo.util.IntArray;
 import com.esotericsoftware.kryo.util.MapReferenceResolver;
 import com.esotericsoftware.kryo.util.ObjectMap;
 import com.esotericsoftware.kryo.util.Util;
-import com.esotericsoftware.minlog.Log;
 import com.esotericsoftware.reflectasm.ConstructorAccess;
-
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.Modifier;
-import java.lang.reflect.Proxy;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.ConcurrentModificationException;
-import java.util.Currency;
-import java.util.Date;
-import java.util.EnumSet;
-import java.util.Locale;
-import java.util.Map;
-import java.util.TimeZone;
-import java.util.TreeMap;
-import java.util.TreeSet;
-
-import org.objenesis.instantiator.ObjectInstantiator;
-import org.objenesis.strategy.InstantiatorStrategy;
-import org.objenesis.strategy.SerializingInstantiatorStrategy;
-import org.objenesis.strategy.StdInstantiatorStrategy;
 
 /** Maps classes to serializers so object graphs can be serialized automatically.
  * @author Nathan Sweet <misc@n4te.com> */
@@ -99,14 +125,15 @@ public class Kryo {
 	static private final int NO_REF = -2;
 
 	private SerializerFactory defaultSerializer = new ReflectionSerializerFactory(FieldSerializer.class);
-	private final ArrayList<DefaultSerializerEntry> defaultSerializers = new ArrayList(32);
+	private final ArrayList<DefaultSerializerEntry> defaultSerializers = new ArrayList(33);
 	private final int lowPriorityDefaultSerializerCount;
 
 	private final ClassResolver classResolver;
 	private int nextRegisterID;
 	private ClassLoader classLoader = getClass().getClassLoader();
-	private InstantiatorStrategy strategy = new DefaultInstantiatorStrategy(new StdInstantiatorStrategy());
+	private InstantiatorStrategy strategy = new DefaultInstantiatorStrategy();
 	private boolean registrationRequired;
+	private boolean warnUnregisteredClasses;
 
 	private int depth, maxDepth = Integer.MAX_VALUE;
 	private boolean autoReset = true;
@@ -122,9 +149,10 @@ public class Kryo {
 	private boolean copyShallow;
 	private IdentityMap originalToCopy;
 	private Object needsCopyReference;
-	private Generics genericsScope;
-	/** Tells if ASM-based backend should be used by new serializer instances created using this Kryo instance. */
-	private boolean asmEnabled = false;
+	private GenericsResolver genericsResolver = new GenericsResolver();
+
+	private FieldSerializerConfig fieldSerializerConfig = new FieldSerializerConfig();
+	private TaggedFieldSerializerConfig taggedFieldSerializerConfig = new TaggedFieldSerializerConfig();
 
 	private StreamFactory streamFactory;
 
@@ -193,6 +221,10 @@ public class Kryo {
 		addDefaultSerializer(TimeZone.class, TimeZoneSerializer.class);
 		addDefaultSerializer(Calendar.class, CalendarSerializer.class);
 		addDefaultSerializer(Locale.class, LocaleSerializer.class);
+		addDefaultSerializer(Charset.class, CharsetSerializer.class);
+		addDefaultSerializer(URL.class, URLSerializer.class);
+		OptionalSerializers.addDefaultSerializers(this);
+		TimeSerializers.addDefaultSerializers(this);
 		lowPriorityDefaultSerializerCount = defaultSerializers.size();
 
 		// Primitives and string. Primitive wrappers automatically use the same registration as primitives.
@@ -206,25 +238,11 @@ public class Kryo {
 		register(long.class, new LongSerializer());
 		register(double.class, new DoubleSerializer());
 		register(void.class, new VoidSerializer());
-		
-		// Lambdas support
-		// Enable only if JVM supports it
-		try {
-			String version = System.getProperty("java.version");
-			char minor = version.charAt(2);
-			if (minor >= '8') {
-				register(Class.forName("java.lang.invoke.SerializedLambda"));
-				register(Closure.class, (Serializer)Class.forName("com.esotericsoftware.kryo.serializers.ClosureSerializer")
-					.newInstance());
-			}
-		} catch (Exception e) {
-			Log.trace("Serialization of Java8 lambdas is not available on this system.");
-		}
 	}
 
 	// --- Default serializers ---
-	/** Sets the serializer factory to use when no {@link #addDefaultSerializer(Class, Class) default serializers} match an object's
-	 * type. Default is {@link ReflectionSerializerFactory} with {@link FieldSerializer}.
+	/** Sets the serializer factory to use when no {@link #addDefaultSerializer(Class, Class) default serializers} match an
+	 * object's type. Default is {@link ReflectionSerializerFactory} with {@link FieldSerializer}.
 	 * @see #newDefaultSerializer(Class) */
 	public void setDefaultSerializer (SerializerFactory serializer) {
 		if (serializer == null) throw new IllegalArgumentException("serializer cannot be null.");
@@ -239,7 +257,8 @@ public class Kryo {
 		defaultSerializer = new ReflectionSerializerFactory(serializer);
 	}
 
-	/** Instances of the specified class will use the specified serializer.
+	/** Instances of the specified class will use the specified serializer when {@link #register(Class)} or
+	 * {@link #register(Class, int)} are called.
 	 * @see #setDefaultSerializer(Class) */
 	public void addDefaultSerializer (Class type, Serializer serializer) {
 		if (type == null) throw new IllegalArgumentException("type cannot be null.");
@@ -248,6 +267,9 @@ public class Kryo {
 		defaultSerializers.add(defaultSerializers.size() - lowPriorityDefaultSerializerCount, entry);
 	}
 
+	/** Instances of the specified class will use the specified factory to create a serializer when {@link #register(Class)} or
+	 * {@link #register(Class, int)} are called.
+	 * @see #setDefaultSerializer(Class) */
 	public void addDefaultSerializer (Class type, SerializerFactory serializerFactory) {
 		if (type == null) throw new IllegalArgumentException("type cannot be null.");
 		if (serializerFactory == null) throw new IllegalArgumentException("serializerFactory cannot be null.");
@@ -255,7 +277,8 @@ public class Kryo {
 		defaultSerializers.add(defaultSerializers.size() - lowPriorityDefaultSerializerCount, entry);
 	}
 
-	/** Instances of the specified class will use the specified serializer. Serializer instances are created as needed via
+	/** Instances of the specified class will use the specified serializer when {@link #register(Class)} or
+	 * {@link #register(Class, int)} are called. Serializer instances are created as needed via
 	 * {@link ReflectionSerializerFactory#makeSerializer(Kryo, Class, Class)}. By default, the following classes have a default
 	 * serializer set:
 	 * <p>
@@ -344,7 +367,7 @@ public class Kryo {
 		if (type == null) throw new IllegalArgumentException("type cannot be null.");
 
 		final Serializer serializerForAnnotation = getDefaultSerializerForAnnotatedType(type);
-		if (serializerForAnnotation!=null) return serializerForAnnotation;
+		if (serializerForAnnotation != null) return serializerForAnnotation;
 
 		for (int i = 0, n = defaultSerializers.size(); i < n; i++) {
 			DefaultSerializerEntry entry = defaultSerializers.get(i);
@@ -357,8 +380,7 @@ public class Kryo {
 		return newDefaultSerializer(type);
 	}
 
-	protected Serializer getDefaultSerializerForAnnotatedType(Class type)
-	{
+	protected Serializer getDefaultSerializerForAnnotatedType (Class type) {
 		if (type.isAnnotationPresent(DefaultSerializer.class)) {
 			DefaultSerializer defaultSerializerAnnotation = (DefaultSerializer)type.getAnnotation(DefaultSerializer.class);
 			return ReflectionSerializerFactory.makeSerializer(this, defaultSerializerAnnotation.value(), type);
@@ -377,8 +399,8 @@ public class Kryo {
 	// --- Registration ---
 
 	/** Registers the class using the lowest, next available integer ID and the {@link Kryo#getDefaultSerializer(Class) default
-	 * serializer}. If the class is already registered, the existing entry is updated with the new serializer. Registering a
-	 * primitive also affects the corresponding primitive wrapper.
+	 * serializer}. If the class is already registered, no change will be made and the existing registration will be returned.
+	 * Registering a primitive also affects the corresponding primitive wrapper.
 	 * <p>
 	 * Because the ID assigned is affected by the IDs registered before it, the order classes are registered is important when
 	 * using this method. The order must be the same at deserialization as it was for serialization. */
@@ -388,9 +410,9 @@ public class Kryo {
 		return register(type, getDefaultSerializer(type));
 	}
 
-	/** Registers the class using the specified ID and the {@link Kryo#getDefaultSerializer(Class) default serializer}. If the ID is
-	 * already in use by the same type, the old entry is overwritten. If the ID is already in use by a different type, a
-	 * {@link KryoException} is thrown. Registering a primitive also affects the corresponding primitive wrapper.
+	/** Registers the class using the specified ID and the {@link Kryo#getDefaultSerializer(Class) default serializer}. If the
+	 * class is already registered this has no effect and the existing registration is returned. Registering a primitive also
+	 * affects the corresponding primitive wrapper.
 	 * <p>
 	 * IDs must be the same at deserialization as they were for serialization.
 	 * @param id Must be >= 0. Smaller IDs are serialized more efficiently. IDs 0-8 are used by default for primitive types and
@@ -416,9 +438,8 @@ public class Kryo {
 		return classResolver.register(new Registration(type, serializer, getNextRegistrationId()));
 	}
 
-	/** Registers the class using the specified ID and serializer. If the ID is already in use by the same type, the old entry is
-	 * overwritten. If the ID is already in use by a different type, a {@link KryoException} is thrown. Registering a primitive
-	 * also affects the corresponding primitive wrapper.
+	/** Registers the class using the specified ID and serializer. Providing an ID that is already in use by the same type will
+	 * cause the old entry to be overwritten. Registering a primitive also affects the corresponding primitive wrapper.
 	 * <p>
 	 * IDs must be the same at deserialization as they were for serialization.
 	 * @param id Must be >= 0. Smaller IDs are serialized more efficiently. IDs 0-8 are used by default for primitive types and
@@ -428,9 +449,8 @@ public class Kryo {
 		return register(new Registration(type, serializer, id));
 	}
 
-	/** Stores the specified registration. If the ID is already in use by the same type, the old entry is overwritten. If the ID is
-	 * already in use by a different type, a {@link KryoException} is thrown. Registering a primitive also affects the
-	 * corresponding primitive wrapper.
+	/** Stores the specified registration. If the ID is already in use by the same type, the old entry is overwritten. Registering
+	 * a primitive also affects the corresponding primitive wrapper.
 	 * <p>
 	 * IDs must be the same at deserialization as they were for serialization.
 	 * <p>
@@ -443,7 +463,7 @@ public class Kryo {
 		Registration existing = getRegistration(registration.getId());
 		if (DEBUG && existing != null && existing.getType() != registration.getType()) {
 			debug("An existing registration with a different type already uses ID: " + registration.getId()
-				+ "\nExisting registration: " + existing + "\nUnable to set registration: " + registration);
+				+ "\nExisting registration: " + existing + "\nis now overwritten with: " + registration);
 		}
 
 		return classResolver.register(registration);
@@ -475,18 +495,25 @@ public class Kryo {
 				registration = getRegistration(type.getEnclosingClass());
 			} else if (EnumSet.class.isAssignableFrom(type)) {
 				registration = classResolver.getRegistration(EnumSet.class);
-			} else if (isClousre(type)) {
-				registration = classResolver.getRegistration(Closure.class);
+			} else if (isClosure(type)) {
+				registration = classResolver.getRegistration(ClosureSerializer.Closure.class);
 			}
 			if (registration == null) {
 				if (registrationRequired) {
-					throw new IllegalArgumentException("Class is not registered: " + className(type)
-						+ "\nNote: To register this class use: kryo.register(" + className(type) + ".class);");
+					throw new IllegalArgumentException(unregisteredClassMessage(type));
+				}
+				if (warnUnregisteredClasses) {
+					warn(unregisteredClassMessage(type));
 				}
 				registration = classResolver.registerImplicit(type);
 			}
 		}
 		return registration;
+	}
+
+	protected String unregisteredClassMessage (Class type) {
+		return "Class is not registered: " + className(type) + "\nNote: To register this class use: kryo.register("
+			+ className(type) + ".class);";
 	}
 
 	/** @see ClassResolver#getRegistration(int) */
@@ -995,7 +1022,8 @@ public class Kryo {
 		return referenceResolver;
 	}
 
-	/** Sets the classloader to resolve unregistered class names to classes. The default is the loader that loaded the Kryo class. */
+	/** Sets the classloader to resolve unregistered class names to classes. The default is the loader that loaded the Kryo
+	 * class. */
 	public void setClassLoader (ClassLoader classLoader) {
 		if (classLoader == null) throw new IllegalArgumentException("classLoader cannot be null.");
 		this.classLoader = classLoader;
@@ -1022,6 +1050,20 @@ public class Kryo {
 		return registrationRequired;
 	}
 
+	/** If true, kryo writes a warn log telling about the classes unregistered. Default is false.
+	 * <p>
+	 * If false, no log are written when unregistered classes are encountered.
+	 * </p>
+	*/
+	public void setWarnUnregisteredClasses (boolean warnUnregisteredClasses) {
+		this.warnUnregisteredClasses = warnUnregisteredClasses;
+		if (TRACE) trace("kryo", "Warn unregistered classes: " + warnUnregisteredClasses);
+	}
+
+	public boolean isWarnUnregisteredClasses () {
+		return warnUnregisteredClasses;
+	}
+
 	/** If true, each appearance of an object in the graph after the first is stored as an integer ordinal. When set to true,
 	 * {@link MapReferenceResolver} is used. This enables references to the same object and cyclic graphs to be serialized, but
 	 * typically adds overhead of one byte per object. Default is true.
@@ -1040,6 +1082,17 @@ public class Kryo {
 	 * object graph is copied that contains a circular reference. Default is true. */
 	public void setCopyReferences (boolean copyReferences) {
 		this.copyReferences = copyReferences;
+	}
+
+	/** The default configuration for {@link FieldSerializer} instances. Already existing serializer instances (e.g. implicitely
+	 * created for already registered classes) are not affected by this configuration. You can override the configuration for a
+	 * single {@link FieldSerializer}. */
+	public FieldSerializerConfig getFieldSerializerConfig () {
+		return fieldSerializerConfig;
+	}
+
+	public TaggedFieldSerializerConfig getTaggedFieldSerializerConfig () {
+		return taggedFieldSerializerConfig;
 	}
 
 	/** Sets the reference resolver and enables references. */
@@ -1080,7 +1133,7 @@ public class Kryo {
 		Registration registration = getRegistration(type);
 		ObjectInstantiator instantiator = registration.getInstantiator();
 		if (instantiator == null) {
-				instantiator = newInstantiator(type);
+			instantiator = newInstantiator(type);
 			registration.setInstantiator(instantiator);
 		}
 		return (T)instantiator.newInstance();
@@ -1136,12 +1189,11 @@ public class Kryo {
 		if (type.isArray()) return Modifier.isFinal(Util.getElementClass(type).getModifiers());
 		return Modifier.isFinal(type.getModifiers());
 	}
-	
+
 	/** Returns true if the specified type is a closure.
 	 * <p>
-	 * This can be overridden to support alternative implementations of clousres. Current version supports 
-	 * Oracle's Java8 only */
-	public boolean isClousre (Class type) {
+	 * This can be overridden to support alternative implementations of clousres. Current version supports Oracle's Java8 only */
+	protected boolean isClosure (Class type) {
 		if (type == null) throw new IllegalArgumentException("type cannot be null.");
 		return type.getName().indexOf('/') >= 0;
 	}
@@ -1156,24 +1208,8 @@ public class Kryo {
 		}
 	}
 
-	public void pushGenericsScope (Class type, Generics generics) {
-		if (TRACE) trace("kryo", "Settting a new generics scope for class " + type.getName() + ": " + generics);
-		Generics currentScope = genericsScope;
-		if (generics.getParentScope() != null) {
-			generics = new Generics(generics.getMappings());
-		}
-		genericsScope = generics;
-		genericsScope.setParentScope(currentScope);
-	}
-
-	public void popGenericsScope () {
-		Generics oldScope = genericsScope;
-		if (genericsScope != null) genericsScope = genericsScope.getParentScope();
-		if (oldScope != null) oldScope.resetParentScope();
-	}
-
-	public Generics getGenericsScope () {
-		return genericsScope;
+	public GenericsResolver getGenericsResolver () {
+		return genericsResolver;
 	}
 
 	public StreamFactory getStreamFactory () {
@@ -1192,13 +1228,18 @@ public class Kryo {
 	 * </p>
 	 * 
 	 * @param flag if true, ASM-based backend will be used. Otherwise Unsafe-based backend could be used by some serializers, e.g.
-	 *           FieldSerializer */
+	 *           FieldSerializer
+	 *
+	 * @deprecated Use {@link #getFieldSerializerConfig()} to change the default {@link FieldSerializer} configuration. */
+	@Deprecated
 	public void setAsmEnabled (boolean flag) {
-		this.asmEnabled = flag;
+		fieldSerializerConfig.setUseAsm(flag);
 	}
 
+	/** @deprecated Use {@link #getFieldSerializerConfig()} to change the default {@link FieldSerializer} configuration. */
+	@Deprecated
 	public boolean getAsmEnabled () {
-		return asmEnabled;
+		return fieldSerializerConfig.isUseAsm();
 	}
 
 	static public class DefaultInstantiatorStrategy implements org.objenesis.strategy.InstantiatorStrategy {
@@ -1272,7 +1313,5 @@ public class Kryo {
 			return fallbackStrategy.newInstantiatorOf(type);
 		}
 	}
-	
-	private static class Closure {
-	}
+
 }

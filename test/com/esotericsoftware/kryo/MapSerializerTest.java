@@ -1,19 +1,39 @@
+/* Copyright (c) 2008, Nathan Sweet
+ * All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
+ * conditions are met:
+ * 
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+ * disclaimer in the documentation and/or other materials provided with the distribution.
+ * - Neither the name of Esoteric Software nor the names of its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+ * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 package com.esotericsoftware.kryo;
 
+import java.io.ByteArrayInputStream;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 
-import junit.framework.Assert;
-
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 import com.esotericsoftware.kryo.serializers.MapSerializer;
+
+import junit.framework.Assert;
 
 /** @author Nathan Sweet <misc@n4te.com> */
 public class MapSerializerTest extends KryoTestCase {
@@ -112,6 +132,14 @@ public class MapSerializerTest extends KryoTestCase {
 		key2.value = "1234";
 		map.put(key2, "4567");
 		roundTrip(21, 24, map);
+
+		kryo.register(TreeMapSubclass.class);
+		map = new TreeMapSubclass<String, Integer>();
+		map.put("1", 47);
+		map.put("2", 34);
+		map.put("3", 65);
+		map.put("4", 44);
+		roundTrip(24, 38, map);
 	}
 
 	public void testTreeMapWithReferences () {
@@ -132,8 +160,40 @@ public class MapSerializerTest extends KryoTestCase {
 		key2.value = "1234";
 		map.put(key2, "4567");
 		roundTrip(29, 32, map);
+
+		kryo.register(TreeMapSubclass.class);
+		map = new TreeMapSubclass<String, Integer>();
+		map.put("1", 47);
+		map.put("2", 34);
+		map.put("3", 65);
+		map.put("4", 44);
+		roundTrip(29, 43, map);
 	}
-	
+
+	public void testSerializingMapAfterDeserializingMultipleReferencesToSameMap () throws Exception {
+		Kryo kryo = new Kryo();
+		kryo.getFieldSerializerConfig().setOptimizedGenerics(false);
+		Output output = new Output(4096);
+
+		kryo.writeClassAndObject(output, new HasMultipleReferenceToSameMap());
+		kryo.readClassAndObject(new Input(new ByteArrayInputStream(output.getBuffer())));
+		output.clear();
+
+		Map<Integer, List<String>> mapOfLists = new HashMap<Integer, List<String>>();
+		mapOfLists.put(1, new java.util.ArrayList<String>());
+		kryo.writeClassAndObject(output, mapOfLists);
+
+		@SuppressWarnings("unchecked")
+		Map<Integer, List<String>> deserializedMap = (Map<Integer, List<String>>)kryo
+			.readClassAndObject(new Input(new ByteArrayInputStream(output.getBuffer())));
+		assertEquals(1, deserializedMap.size());
+	}
+
+	static class HasMultipleReferenceToSameMap {
+		private Map<Integer, String> mapOne = new HashMap<Integer, String>();
+		private Map<Integer, String> mapTwo = this.mapOne;
+	}
+
 	static public class HasGenerics {
 		public HashMap<String, Integer[]> map = new HashMap();
 		public HashMap<String, ?> map2 = new HashMap();
@@ -147,10 +207,21 @@ public class MapSerializerTest extends KryoTestCase {
 
 	static public class KeyThatIsntComparable {
 		public String value;
+
 		public KeyThatIsntComparable () {
 		}
+
 		public KeyThatIsntComparable (String value) {
 			this.value = value;
+		}
+	}
+
+	static public class TreeMapSubclass<K, V> extends TreeMap<K, V> {
+		public TreeMapSubclass () {
+		}
+
+		public TreeMapSubclass (Comparator<? super K> comparator) {
+			super(comparator);
 		}
 	}
 }

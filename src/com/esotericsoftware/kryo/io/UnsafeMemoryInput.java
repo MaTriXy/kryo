@@ -1,14 +1,32 @@
+/* Copyright (c) 2008, Nathan Sweet
+ * All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
+ * conditions are met:
+ * 
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+ * disclaimer in the documentation and/or other materials provided with the distribution.
+ * - Neither the name of Esoteric Software nor the names of its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+ * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 package com.esotericsoftware.kryo.io;
 
-import java.io.IOException;
+import static com.esotericsoftware.kryo.util.UnsafeUtil.*;
+
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 
-import sun.nio.ch.DirectBuffer;
-
 import com.esotericsoftware.kryo.KryoException;
-import static com.esotericsoftware.kryo.util.UnsafeUtil.*;
+
+import sun.nio.ch.DirectBuffer;
 
 /** An optimized InputStream that reads data directly from the off-heap memory. Utility methods are provided for efficiently
  * reading primitive types, arrays of primitive types and strings. It uses @link{sun.misc.Unsafe} to achieve a very good
@@ -17,7 +35,7 @@ import static com.esotericsoftware.kryo.util.UnsafeUtil.*;
  * <p>
  * Important notes:<br/>
  * <li>Bulk operations, e.g. on arrays of primitive types, are always using native byte order.</li>
- * <li>Fixed-size int, long, short, float and double elements are always read using native byte order.</li>
+ * <li>Fixed-size char, int, long, short, float and double elements are always read using native byte order.</li>
  * <li>Best performance is achieved if no variable length encoding for integers is used.</li>
  * <li>Serialized representation used as input for this class should always be produced using @link{UnsafeMemoryOutput}</li>
  * </p>
@@ -127,8 +145,10 @@ public final class UnsafeMemoryInput extends ByteBufferInput {
 
 	/** Reads a 2 byte char. */
 	public char readChar () throws KryoException {
-		super.niobuffer.position(position);
-		return super.readChar();
+		require(2);
+		char result = unsafe().getChar(bufaddress + position);
+		position += 2;
+		return result;
 	}
 
 	/** Reads an 8 byte double. */
@@ -209,10 +229,17 @@ public final class UnsafeMemoryInput extends ByteBufferInput {
 		return array;
 	}
 
+	/** Reads the specified number of bytes into a new byte[]. */
+	public byte[] readBytes (int length) throws KryoException {
+		byte[] bytes = new byte[length];
+		readBytes(bytes, 0, (long)bytes.length);
+		return bytes;
+	}
+
 	final public void readBytes (Object dstObj, long offset, long count) throws KryoException {
 		/* Unsafe supports efficient bulk reading into arrays of primitives only because of JVM limitations due to GC */
 		if (dstObj.getClass().isArray())
-			readBytes(dstObj, 0, offset, (int)count);
+			readBytes(dstObj, byteArrayBaseOffset, offset, (int)count);
 		else {
 			throw new KryoException("Only bulk reads of arrays is supported");
 		}

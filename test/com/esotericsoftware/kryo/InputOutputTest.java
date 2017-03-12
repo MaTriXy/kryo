@@ -1,9 +1,29 @@
+/* Copyright (c) 2008, Nathan Sweet
+ * All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
+ * conditions are met:
+ * 
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+ * disclaimer in the documentation and/or other materials provided with the distribution.
+ * - Neither the name of Esoteric Software nor the names of its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+ * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 package com.esotericsoftware.kryo;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.nio.ByteBuffer;
 import java.util.Random;
 
@@ -26,14 +46,14 @@ public class InputOutputTest extends KryoTestCase {
 
 		assertEquals(new byte[] { //
 			11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, //
-				31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, //
-				51, 52, 53, 54, 55, 56, 57, 58, //
-				61, 62, 63, 64, 65}, buffer.toByteArray());
+			31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, //
+			51, 52, 53, 54, 55, 56, 57, 58, //
+			61, 62, 63, 64, 65}, buffer.toByteArray());
 	}
 
 	public void testInputStream () throws IOException {
 		byte[] bytes = new byte[] { //
-		11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, //
+			11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, //
 			31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, //
 			51, 52, 53, 54, 55, 56, 57, 58, //
 			61, 62, 63, 64, 65};
@@ -69,9 +89,9 @@ public class InputOutputTest extends KryoTestCase {
 
 		assertEquals(new byte[] { //
 			11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, //
-				31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, //
-				51, 52, 53, 54, 55, 56, 57, 58, //
-				61, 62, 63, 64, 65}, buffer.toBytes());
+			31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, //
+			51, 52, 53, 54, 55, 56, 57, 58, //
+			61, 62, 63, 64, 65}, buffer.toBytes());
 	}
 
 	public void testStrings () throws IOException {
@@ -263,6 +283,12 @@ public class InputOutputTest extends KryoTestCase {
 		assertEquals(5, write.writeInt(-134217728, true));
 		assertEquals(5, write.writeInt(-134217729, false));
 		assertEquals(5, write.writeInt(-134217729, true));
+		assertEquals(5, write.writeInt(1000000000, false));
+		assertEquals(5, write.writeInt(1000000000, true));
+		assertEquals(5, write.writeInt(Integer.MAX_VALUE - 1, false));
+		assertEquals(5, write.writeInt(Integer.MAX_VALUE - 1, true));
+		assertEquals(5, write.writeInt(Integer.MAX_VALUE, false));
+		assertEquals(5, write.writeInt(Integer.MAX_VALUE, true));
 
 		Input read = new Input(write.toBytes());
 		assertEquals(0, read.readInt());
@@ -329,6 +355,12 @@ public class InputOutputTest extends KryoTestCase {
 		assertEquals(-134217728, read.readInt(true));
 		assertEquals(-134217729, read.readInt(false));
 		assertEquals(-134217729, read.readInt(true));
+		assertEquals(1000000000, read.readInt(false));
+		assertEquals(1000000000, read.readInt(true));
+		assertEquals(Integer.MAX_VALUE - 1, read.readInt(false));
+		assertEquals(Integer.MAX_VALUE - 1, read.readInt(true));
+		assertEquals(Integer.MAX_VALUE, read.readInt(false));
+		assertEquals(Integer.MAX_VALUE, read.readInt(true));
 		assertEquals(false, read.canReadInt());
 
 		Random random = new Random();
@@ -785,12 +817,104 @@ public class InputOutputTest extends KryoTestCase {
 
 		input.readBytes(toRead);
 	}
-	
-	public void testZeroLengthOutputs() throws Exception {
+
+	public void testVerySmallBuffers () throws Exception {
+		Output out1 = new Output(4, -1);
+		Output out2 = new ByteBufferOutput(4, -1);
+
+		for (int i = 0; i < 16; i++) {
+			out1.writeVarInt(92, false);
+		}
+
+		for (int i = 0; i < 16; i++) {
+			out2.writeVarInt(92, false);
+		}
+
+		assertEquals(out1.toBytes(), out2.toBytes());
+	}
+
+	public void testZeroLengthOutputs () throws Exception {
 		Output output = new Output(0, 10000);
 		kryo.writeClassAndObject(output, "Test string");
 
 		Output byteBufferOutput = new ByteBufferOutput(0, 10000);
 		kryo.writeClassAndObject(byteBufferOutput, "Test string");
 	}
+
+	public void testFlushRoundTrip () throws Exception {
+
+		Kryo kryo = new Kryo();
+
+		String s1 = "12345";
+
+		ByteArrayOutputStream os = new ByteArrayOutputStream();
+		ObjectOutputStream objOutput = new ObjectOutputStream(os);
+		Output output = new Output(objOutput);
+
+		kryo.writeClass(output, s1.getClass());
+		kryo.writeObject(output, s1);
+		output.flush();
+// objOutput.flush(); // this layer wasn't flushed prior to this bugfix, add it for a workaround
+
+		byte[] b = os.toByteArray();
+		System.out.println("size: " + b.length);
+
+		ByteArrayInputStream in = new ByteArrayInputStream(b);
+		ObjectInputStream objIn = new ObjectInputStream(in);
+		Input input = new Input(objIn);
+
+		Registration r = kryo.readClass(input);
+		String s2 = (String)kryo.readObject(input, r.getType());
+
+		assertEquals(s1, s2);
+
+	}
+
+	public void testNewOutputMaxBufferSizeLessThanBufferSize () {
+		int bufferSize = 2;
+		int maxBufferSize = 1;
+
+		try {
+			new Output(bufferSize, maxBufferSize);
+			fail("Expecting IllegalArgumentException not thrown");
+		} catch (IllegalArgumentException e) {
+			// This exception is expected
+		}
+	}
+
+	public void testSetOutputMaxBufferSizeLessThanBufferSize () {
+		int bufferSize = 2;
+		int maxBufferSize = 1;
+
+		Output output = new Output(bufferSize, bufferSize);
+		assertNotNull(output);
+
+		try {
+			output.setBuffer(new byte[bufferSize], maxBufferSize);
+			fail("Expecting IllegalArgumentException not thrown");
+		} catch (IllegalArgumentException e) {
+			// This exception is expected
+		}
+
+	}
+
+	public void testNewOutputMaxBufferSizeIsMinusOne () {
+		int bufferSize = 2;
+		int maxBufferSize = -1;
+
+		Output output = new Output(bufferSize, maxBufferSize);
+		assertNotNull(output);
+		// This test should pass as long as no exception thrown
+	}
+
+	public void testSetOutputMaxBufferSizeIsMinusOne () {
+		int bufferSize = 2;
+		int maxBufferSize = -1;
+
+		Output output = new Output(bufferSize, bufferSize);
+		assertNotNull(output);
+		output.setBuffer(new byte[bufferSize], maxBufferSize);
+		// This test should pass as long as no exception thrown
+	}
+
 }

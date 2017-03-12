@@ -1,8 +1,23 @@
+/* Copyright (c) 2008, Nathan Sweet
+ * All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
+ * conditions are met:
+ * 
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+ * disclaimer in the documentation and/or other materials provided with the distribution.
+ * - Neither the name of Esoteric Software nor the names of its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+ * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 package com.esotericsoftware.kryo.io;
-
-import com.esotericsoftware.kryo.KryoException;
-import com.esotericsoftware.kryo.util.UnsafeUtil;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -14,6 +29,9 @@ import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.nio.LongBuffer;
 import java.nio.ShortBuffer;
+
+import com.esotericsoftware.kryo.KryoException;
+import com.esotericsoftware.kryo.util.UnsafeUtil;
 
 /** An OutputStream that buffers data in a byte array and optionally flushes to another OutputStream. Utility methods are provided
  * for efficiently writing primitive types and strings.
@@ -93,6 +111,7 @@ public class ByteBufferOutput extends Output {
 	 * // Release the allocated region
 	 * UnsafeUtil.unsafe().freeMemory(bufAddress);
 	 * </pre>
+	 * 
 	 * @param address starting address of a memory region pre-allocated using Unsafe.allocateMemory()
 	 * @param maxBufferSize */
 	public ByteBufferOutput (long address, int maxBufferSize) {
@@ -116,6 +135,7 @@ public class ByteBufferOutput extends Output {
 
 	public void order (ByteOrder byteOrder) {
 		this.byteOrder = byteOrder;
+		this.niobuffer.order(byteOrder);
 	}
 
 	public OutputStream getOutputStream () {
@@ -160,7 +180,6 @@ public class ByteBufferOutput extends Output {
 	/** Returns a new byte array containing the bytes currently in the buffer between zero and {@link #position()}. */
 	public byte[] toBytes () {
 		byte[] newBuffer = new byte[position];
-		niobuffer.position(position);
 		niobuffer.position(0);
 		niobuffer.get(newBuffer, 0, position);
 		return newBuffer;
@@ -169,6 +188,7 @@ public class ByteBufferOutput extends Output {
 	/** Sets the current position in the buffer. */
 	public void setPosition (int position) {
 		this.position = position;
+		this.niobuffer.position(position);
 	}
 
 	/** Sets the position and total to zero. */
@@ -181,23 +201,32 @@ public class ByteBufferOutput extends Output {
 	/** @return true if the buffer has been resized. */
 	protected boolean require (int required) throws KryoException {
 		if (capacity - position >= required) return false;
-		if (required > maxCapacity)
+		if (required > maxCapacity) {
+			niobuffer.order(byteOrder);
 			throw new KryoException("Buffer overflow. Max capacity: " + maxCapacity + ", required: " + required);
+		}
 		flush();
 		while (capacity - position < required) {
-			if (capacity == maxCapacity)
+			if (capacity == maxCapacity) {
+				niobuffer.order(byteOrder);
 				throw new KryoException("Buffer overflow. Available: " + (capacity - position) + ", required: " + required);
+			}
 			// Grow buffer.
 			if (capacity == 0) capacity = 1;
 			capacity = Math.min(capacity * 2, maxCapacity);
 			if (capacity < 0) capacity = maxCapacity;
-			ByteBuffer newBuffer = (niobuffer != null && !niobuffer.isDirect()) ? ByteBuffer.allocate(capacity) : ByteBuffer
-				.allocateDirect(capacity);
+			ByteBuffer newBuffer = (niobuffer != null && !niobuffer.isDirect()) ? ByteBuffer.allocate(capacity)
+				: ByteBuffer.allocateDirect(capacity);
 			// Copy the whole buffer
 			niobuffer.position(0);
+			niobuffer.limit(position);
 			newBuffer.put(niobuffer);
-			newBuffer.order(byteOrder);
-			niobuffer = newBuffer;
+			newBuffer.order(niobuffer.order());
+
+			// writeVarInt & writeVarLong mess with the byte order. need to keep track of the current byte order when growing
+			final ByteOrder currentByteOrder = byteOrder;
+			setBuffer(newBuffer, maxCapacity);
+			byteOrder = currentByteOrder;
 		}
 		return true;
 	}

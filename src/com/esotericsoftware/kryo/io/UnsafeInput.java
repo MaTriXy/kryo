@@ -1,25 +1,43 @@
+/* Copyright (c) 2008, Nathan Sweet
+ * All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
+ * conditions are met:
+ * 
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+ * disclaimer in the documentation and/or other materials provided with the distribution.
+ * - Neither the name of Esoteric Software nor the names of its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+ * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 package com.esotericsoftware.kryo.io;
 
-import java.io.IOException;
+import static com.esotericsoftware.kryo.util.UnsafeUtil.*;
+
 import java.io.InputStream;
 
 import com.esotericsoftware.kryo.KryoException;
-import com.esotericsoftware.kryo.util.UnsafeUtil;
-
-import static com.esotericsoftware.kryo.util.UnsafeUtil.*;
 
 /** An optimized InputStream that reads data from a byte array and optionally fills the byte array from another InputStream as
  * needed. Utility methods are provided for efficiently writing primitive types, arrays of primitive types and strings. It uses
  * @link{sun.misc.Unsafe} to achieve a very good performance.
  * 
- * <p>
- * Important notes:<br/>
- * <li>Bulk operations, e.g. on arrays of primitive types, are always using native byte order.</li>
- * <li>Fixed-size int, long, short, float and double elements are always read using native byte order.</li>
- * <li>Best performance is achieved if no variable length encoding for integers is used.</li>
- * <li>Serialized representation used as input for this class should always be produced using @link{UnsafeOutput}</li>
- * </p>
+ *                        <p>
+ *                        Important notes:<br/>
+ *                        <li>Bulk operations, e.g. on arrays of primitive types, are always using native byte order.</li>
+ *                        <li>Fixed-size char, int, long, short, float and double elements are always read using native byte
+ *                        order.</li>
+ *                        <li>Best performance is achieved if no variable length encoding for integers is used.</li>
+ *                        <li>Serialized representation used as input for this class should always be produced
+ *                        using @link{UnsafeOutput}</li>
+ *                        </p>
  * @author Roman Levenstein <romixlev@gmail.com> */
 public final class UnsafeInput extends Input {
 
@@ -104,6 +122,15 @@ public final class UnsafeInput extends Input {
 		require(8);
 		double result = unsafe().getDouble(buffer, byteArrayBaseOffset + position);
 		position += 8;
+		return result;
+	}
+
+	// char
+
+	public char readChar () throws KryoException {
+		require(2);
+		char result = unsafe().getChar(buffer, byteArrayBaseOffset + position);
+		position += 2;
 		return result;
 	}
 

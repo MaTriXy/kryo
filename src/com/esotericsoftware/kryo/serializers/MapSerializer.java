@@ -1,3 +1,21 @@
+/* Copyright (c) 2008, Nathan Sweet
+ * All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
+ * conditions are met:
+ * 
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+ * disclaimer in the documentation and/or other materials provided with the distribution.
+ * - Neither the name of Esoteric Software nor the names of its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+ * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 package com.esotericsoftware.kryo.serializers;
 
@@ -46,8 +64,8 @@ public class MapSerializer extends Serializer<Map> {
 		this.valueSerializer = valueSerializer;
 	}
 
-	/** @param valuesCanBeNull True if values are not null. This saves 1 byte per value if keyClass is set. False if it is not known
-	 *           (default). */
+	/** @param valuesCanBeNull True if values are not null. This saves 1 byte per value if keyClass is set. False if it is not
+	 *           known (default). */
 	public void setValuesCanBeNull (boolean valuesCanBeNull) {
 		this.valuesCanBeNull = valuesCanBeNull;
 	}
@@ -55,7 +73,7 @@ public class MapSerializer extends Serializer<Map> {
 	public void setGenerics (Kryo kryo, Class[] generics) {
 		keyGenericType = null;
 		valueGenericType = null;
-		
+
 		if (generics != null && generics.length > 0) {
 			if (generics[0] != null && kryo.isFinal(generics[0])) keyGenericType = generics[0];
 			if (generics.length > 1 && generics[1] != null && kryo.isFinal(generics[1])) valueGenericType = generics[1];
@@ -159,56 +177,41 @@ public class MapSerializer extends Serializer<Map> {
 		return copy;
 	}
 
-	/** 
-	 * Used to annotate fields that are maps with specific Kryo serializers for 
-	 * their keys or values. 
-	 */
+	/** Used to annotate fields that are maps with specific Kryo serializers for their keys or values. */
 	@Retention(RetentionPolicy.RUNTIME)
 	@Target(ElementType.FIELD)
 	public @interface BindMap {
 
-		/** 
-		 * Serializer to be used for keys
+		/** Serializer to be used for keys
 		 * 
-		 * @return the class<? extends serializer> used for keys serialization
-		 */
+		 * @return the class<? extends serializer> used for keys serialization */
 		@SuppressWarnings("rawtypes")
 		Class<? extends Serializer> keySerializer() default Serializer.class;
 
-		/** 
-		 * Serializer to be used for values
+		/** Serializer to be used for values
 		 * 
-		 * @return the class<? extends serializer> used for values serialization 
-		 */
+		 * @return the class<? extends serializer> used for values serialization */
 		@SuppressWarnings("rawtypes")
 		Class<? extends Serializer> valueSerializer() default Serializer.class;
 
-		/** 
-		 * Class used for keys
+		/** Class used for keys
 		 * 
-		 * @return the class used for keys 
-		 */
+		 * @return the class used for keys */
 		Class<?> keyClass() default Object.class;
 
-		/** 
-		 * Class used for values
+		/** Class used for values
 		 * 
-		 * @return the class used for values 
-		 */
+		 * @return the class used for values */
 		Class<?> valueClass() default Object.class;
 
-		/** 
-		 * Indicates if keys can be null
+		/** Indicates if keys can be null
 		 * 
-		 * @return true, if keys can be null 
-		 */
+		 * @return true, if keys can be null */
 		boolean keysCanBeNull() default true;
 
-		/** 
-		 * Indicates if values can be null
+		/** Indicates if values can be null
 		 * 
-		 * @return true, if values can be null 
-		 */
+		 * @return true, if values can be null */
 		boolean valuesCanBeNull() default true;
 	}
 }

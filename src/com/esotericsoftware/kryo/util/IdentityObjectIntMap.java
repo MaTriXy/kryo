@@ -1,18 +1,38 @@
+/* Copyright (c) 2008, Nathan Sweet
+ * All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
+ * conditions are met:
+ * 
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+ * disclaimer in the documentation and/or other materials provided with the distribution.
+ * - Neither the name of Esoteric Software nor the names of its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+ * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 package com.esotericsoftware.kryo.util;
 
 /** An unordered map where identity comparison is used for keys and the values are ints. This implementation is a cuckoo hash map
- * using 3 hashes, random walking, and a small stash for problematic keys. Null keys are not allowed. No allocation is done except
- * when growing the table size. <br>
+ * using 3 hashes (if table size is less than 2^16) or 4 hashes (if table size is greater than or equal to 2^16), random walking,
+ * and a small stash for problematic keys. Null keys are not allowed. No allocation is done except when growing the table size.
+ * <br>
  * <br>
  * This map performs very fast get, containsKey, and remove (typically O(1), worst case O(log(n))). Put may be a bit slower,
  * depending on hash collisions. Load factors greater than 0.91 greatly increase the chances the map will have to rehash to the
  * next higher POT size.
  * @author Nathan Sweet */
 public class IdentityObjectIntMap<K> {
-	private static final int PRIME1 = 0xbe1f14b1;
-	private static final int PRIME2 = 0xb4b82e39;
-	private static final int PRIME3 = 0xced1c241;
+	// primes for hash functions 2, 3, and 4
+	private static final int PRIME2 = 0xbe1f14b1;
+	private static final int PRIME3 = 0xb4b82e39;
+	private static final int PRIME4 = 0xced1c241;
 
 	public int size;
 
@@ -24,6 +44,7 @@ public class IdentityObjectIntMap<K> {
 	private int hashShift, mask, threshold;
 	private int stashCapacity;
 	private int pushIterations;
+	private boolean isBigTable;
 
 	/** Creates a new map with an initial capacity of 32 and a load factor of 0.8. This map will hold 25 items before growing the
 	 * backing table. */
@@ -37,8 +58,8 @@ public class IdentityObjectIntMap<K> {
 		this(initialCapacity, 0.8f);
 	}
 
-	/** Creates a new map with the specified initial capacity and load factor. This map will hold initialCapacity * loadFactor items
-	 * before growing the backing table. */
+	/** Creates a new map with the specified initial capacity and load factor. This map will hold initialCapacity * loadFactor
+	 * items before growing the backing table. */
 	public IdentityObjectIntMap (int initialCapacity, float loadFactor) {
 		if (initialCapacity < 0) throw new IllegalArgumentException("initialCapacity must be >= 0: " + initialCapacity);
 		if (capacity > 1 << 30) throw new IllegalArgumentException("initialCapacity is too large: " + initialCapacity);
@@ -46,6 +67,9 @@ public class IdentityObjectIntMap<K> {
 
 		if (loadFactor <= 0) throw new IllegalArgumentException("loadFactor must be > 0: " + loadFactor);
 		this.loadFactor = loadFactor;
+
+		// big table is when capacity >= 2^16
+		isBigTable = (capacity >>> 16) != 0 ? true : false;
 
 		threshold = (int)(capacity * loadFactor);
 		mask = capacity - 1;
@@ -59,7 +83,10 @@ public class IdentityObjectIntMap<K> {
 
 	public void put (K key, int value) {
 		if (key == null) throw new IllegalArgumentException("key cannot be null.");
+		// avoid getfield opcode
 		K[] keyTable = this.keyTable;
+		int mask = this.mask;
+		boolean isBigTable = this.isBigTable;
 
 		// Check for existing keys.
 		int hashCode = System.identityHashCode(key);
@@ -82,6 +109,17 @@ public class IdentityObjectIntMap<K> {
 		if (key == key3) {
 			valueTable[index3] = value;
 			return;
+		}
+
+		int index4 = -1;
+		K key4 = null;
+		if (isBigTable) {
+			index4 = hash4(hashCode);
+			key4 = keyTable[index4];
+			if (key == key4) {
+				valueTable[index4] = value;
+				return;
+			}
 		}
 
 		// Update key in the stash.
@@ -114,7 +152,14 @@ public class IdentityObjectIntMap<K> {
 			return;
 		}
 
-		push(key, value, index1, key1, index2, key2, index3, key3);
+		if (isBigTable && key4 == null) {
+			keyTable[index4] = key;
+			valueTable[index4] = value;
+			if (size++ >= threshold) resize(capacity << 1);
+			return;
+		}
+
+		push(key, value, index1, key1, index2, key2, index3, key3, index4, key4);
 	}
 
 	/** Skips checks for existing keys. */
@@ -148,21 +193,38 @@ public class IdentityObjectIntMap<K> {
 			return;
 		}
 
-		push(key, value, index1, key1, index2, key2, index3, key3);
+		int index4 = -1;
+		K key4 = null;
+		if (isBigTable) {
+			index4 = hash4(hashCode);
+			key4 = keyTable[index4];
+			if (key4 == null) {
+				keyTable[index4] = key;
+				valueTable[index4] = value;
+				if (size++ >= threshold) resize(capacity << 1);
+				return;
+			}
+		}
+
+		push(key, value, index1, key1, index2, key2, index3, key3, index4, key4);
 	}
 
-	private void push (K insertKey, int insertValue, int index1, K key1, int index2, K key2, int index3, K key3) {
+	private void push (K insertKey, int insertValue, int index1, K key1, int index2, K key2, int index3, K key3, int index4,
+		K key4) {
+		// avoid getfield opcode
 		K[] keyTable = this.keyTable;
 		int[] valueTable = this.valueTable;
 		int mask = this.mask;
+		boolean isBigTable = this.isBigTable;
 
 		// Push keys until an empty bucket is found.
 		K evictedKey;
 		int evictedValue;
 		int i = 0, pushIterations = this.pushIterations;
+		int n = isBigTable ? 4 : 3;
 		do {
 			// Replace the key and value for one of the hashes.
-			switch (ObjectMap.random.nextInt(3)) {
+			switch (ObjectMap.random.nextInt(n)) {
 			case 0:
 				evictedKey = key1;
 				evictedValue = valueTable[index1];
@@ -175,11 +237,17 @@ public class IdentityObjectIntMap<K> {
 				keyTable[index2] = insertKey;
 				valueTable[index2] = insertValue;
 				break;
-			default:
+			case 2:
 				evictedKey = key3;
 				evictedValue = valueTable[index3];
 				keyTable[index3] = insertKey;
 				valueTable[index3] = insertValue;
+				break;
+			default:
+				evictedKey = key4;
+				evictedValue = valueTable[index4];
+				keyTable[index4] = insertKey;
+				valueTable[index4] = insertValue;
 				break;
 			}
 
@@ -210,6 +278,17 @@ public class IdentityObjectIntMap<K> {
 				valueTable[index3] = evictedValue;
 				if (size++ >= threshold) resize(capacity << 1);
 				return;
+			}
+
+			if (isBigTable) {
+				index4 = hash4(hashCode);
+				key4 = keyTable[index4];
+				if (key4 == null) {
+					keyTable[index4] = evictedKey;
+					valueTable[index4] = evictedValue;
+					if (size++ >= threshold) resize(capacity << 1);
+					return;
+				}
 			}
 
 			if (++i == pushIterations) break;
@@ -244,7 +323,14 @@ public class IdentityObjectIntMap<K> {
 			index = hash2(hashCode);
 			if (key != keyTable[index]) {
 				index = hash3(hashCode);
-				if (key != keyTable[index]) return getStash(key, defaultValue);
+				if (key != keyTable[index]) {
+					if (isBigTable) {
+						index = hash4(hashCode);
+						if (key != keyTable[index]) return getStash(key, defaultValue);
+					} else {
+						return getStash(key, defaultValue);
+					}
+				}
 			}
 		}
 		return valueTable[index];
@@ -266,7 +352,14 @@ public class IdentityObjectIntMap<K> {
 			index = hash2(hashCode);
 			if (key != keyTable[index]) {
 				index = hash3(hashCode);
-				if (key != keyTable[index]) return getAndIncrementStash(key, defaultValue, increment);
+				if (key != keyTable[index]) {
+					if (isBigTable) {
+						index = hash4(hashCode);
+						if (key != keyTable[index]) return getAndIncrementStash(key, defaultValue, increment);
+					} else {
+						return getAndIncrementStash(key, defaultValue, increment);
+					}
+				}
 			}
 		}
 		int value = valueTable[index];
@@ -310,6 +403,16 @@ public class IdentityObjectIntMap<K> {
 			int oldValue = valueTable[index];
 			size--;
 			return oldValue;
+		}
+
+		if (isBigTable) {
+			index = hash4(hashCode);
+			if (key == keyTable[index]) {
+				keyTable[index] = null;
+				int oldValue = valueTable[index];
+				size--;
+				return oldValue;
+			}
 		}
 
 		return removeStash(key, defaultValue);
@@ -366,12 +469,13 @@ public class IdentityObjectIntMap<K> {
 		stashSize = 0;
 	}
 
-	/** Returns true if the specified value is in the map. Note this traverses the entire map and compares every value, which may be
-	 * an expensive operation. */
+	/** Returns true if the specified value is in the map. Note this traverses the entire map and compares every value, which may
+	 * be an expensive operation. */
 	public boolean containsValue (int value) {
+		K[] keyTable = this.keyTable;
 		int[] valueTable = this.valueTable;
 		for (int i = capacity + stashSize; i-- > 0;)
-			if (valueTable[i] == value) return true;
+			if (keyTable[i] != null && valueTable[i] == value) return true;
 		return false;
 	}
 
@@ -382,7 +486,14 @@ public class IdentityObjectIntMap<K> {
 			index = hash2(hashCode);
 			if (key != keyTable[index]) {
 				index = hash3(hashCode);
-				if (key != keyTable[index]) return containsKeyStash(key);
+				if (key != keyTable[index]) {
+					if (isBigTable) {
+						index = hash4(hashCode);
+						if (key != keyTable[index]) return containsKeyStash(key);
+					} else {
+						return containsKeyStash(key);
+					}
+				}
 			}
 		}
 		return true;
@@ -398,9 +509,10 @@ public class IdentityObjectIntMap<K> {
 	/** Returns the key for the specified value, or null if it is not in the map. Note this traverses the entire map and compares
 	 * every value, which may be an expensive operation. */
 	public K findKey (int value) {
+		K[] keyTable = this.keyTable;
 		int[] valueTable = this.valueTable;
 		for (int i = capacity + stashSize; i-- > 0;)
-			if (valueTable[i] == value) return keyTable[i];
+			if (keyTable[i] != null && valueTable[i] == value) return keyTable[i];
 		return null;
 	}
 
@@ -420,6 +532,9 @@ public class IdentityObjectIntMap<K> {
 		hashShift = 31 - Integer.numberOfTrailingZeros(newSize);
 		stashCapacity = Math.max(3, (int)Math.ceil(Math.log(newSize)) * 2);
 		pushIterations = Math.max(Math.min(newSize, 8), (int)Math.sqrt(newSize) / 8);
+
+		// big table is when capacity >= 2^16
+		isBigTable = (capacity >>> 16) != 0 ? true : false;
 
 		K[] oldKeyTable = keyTable;
 		int[] oldValueTable = valueTable;
@@ -445,6 +560,11 @@ public class IdentityObjectIntMap<K> {
 
 	private int hash3 (int h) {
 		h *= PRIME3;
+		return (h ^ h >>> hashShift) & mask;
+	}
+
+	private int hash4 (int h) {
+		h *= PRIME4;
 		return (h ^ h >>> hashShift) & mask;
 	}
 

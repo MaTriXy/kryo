@@ -1,24 +1,48 @@
+/* Copyright (c) 2008, Nathan Sweet
+ * All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
+ * conditions are met:
+ * 
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+ * disclaimer in the documentation and/or other materials provided with the distribution.
+ * - Neither the name of Esoteric Software nor the names of its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+ * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 package com.esotericsoftware.kryo.serializers;
 
 import static com.esotericsoftware.minlog.Log.*;
-
-import com.esotericsoftware.kryo.Kryo;
-import com.esotericsoftware.kryo.KryoException;
-import com.esotericsoftware.kryo.io.Input;
-import com.esotericsoftware.kryo.io.Output;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.lang.reflect.Field;
+import java.util.Arrays;
+import java.util.Comparator;
 
-/** Serializes objects using direct field assignment for fields that have been {@link Tag tagged}. Fields without the {@link Tag}
- * annotation are not serialized. New tagged fields can be added without invalidating previously serialized bytes. If any tagged
- * field is removed, previously serialized bytes are invalidated. Instead of removing fields, apply the {@link Deprecated}
- * annotation and they will still be deserialized but won't be serialized. If fields are public, bytecode generation will be used
- * instead of reflection.
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.KryoException;
+import com.esotericsoftware.kryo.io.Input;
+import com.esotericsoftware.kryo.io.Output;
+
+/** Serializes objects using direct field assignment for fields that have a <code>@Tag(int)</code> annotation. This provides
+ * backward compatibility so new fields can be added. TaggedFieldSerializer has two advantages over {@link VersionFieldSerializer}
+ * : 1) fields can be renamed and 2) fields marked with the <code>@Deprecated</code> annotation will be ignored when reading old
+ * bytes and won't be written to new bytes. Deprecation effectively removes the field from serialization, though the field and
+ * <code>@Tag</code> annotation must remain in the class. Deprecated fields can optionally be made private and/or renamed so they
+ * don't clutter the class (eg, <code>ignored</code>, <code>ignored2</code>). For these reasons, TaggedFieldSerializer generally
+ * provides more flexibility for classes to evolve. The downside is that it has a small amount of additional overhead compared to
+ * VersionFieldSerializer (an additional varint per field). Forward compatibility is not supported.
+ * @see VersionFieldSerializer
  * @author Nathan Sweet <misc@n4te.com> */
 public class TaggedFieldSerializer<T> extends FieldSerializer<T> {
 	private int[] tags;
@@ -26,7 +50,24 @@ public class TaggedFieldSerializer<T> extends FieldSerializer<T> {
 	private boolean[] deprecated;
 
 	public TaggedFieldSerializer (Kryo kryo, Class type) {
-		super(kryo, type);
+		super(kryo, type, null, kryo.getTaggedFieldSerializerConfig().clone());
+	}
+
+	/** Tells Kryo, if should ignore unknown field tags when using TaggedFieldSerializer. Already existing serializer instances are
+	 * not affected by this setting.
+	 *
+	 * <p>
+	 * By default, Kryo will throw KryoException if encounters unknown field tags.
+	 * </p>
+	 *
+	 * @param ignoreUnknownTags if true, unknown field tags will be ignored. Otherwise KryoException will be thrown */
+	public void setIgnoreUnknownTags (boolean ignoreUnknownTags) {
+		((TaggedFieldSerializerConfig)config).setIgnoreUnknownTags(ignoreUnknownTags);
+		rebuildCachedFields();
+	}
+
+	public boolean isIgnoreUnkownTags () {
+		return ((TaggedFieldSerializerConfig)config).isIgnoreUnknownTags();
 	}
 
 	protected void initializeCachedFields () {
@@ -44,6 +85,13 @@ public class TaggedFieldSerializer<T> extends FieldSerializer<T> {
 		tags = new int[fields.length];
 		deprecated = new boolean[fields.length];
 		writeFieldCount = fields.length;
+
+		// fields are sorted to ensure write order: tag 0, tag 1, ... , tag N
+		Arrays.sort(fields, new Comparator<CachedField>() {
+			public int compare (CachedField o1, CachedField o2) {
+				return o1.getField().getAnnotation(Tag.class).value() - o2.getField().getAnnotation(Tag.class).value();
+			}
+		});
 		for (int i = 0, n = fields.length; i < n; i++) {
 			Field field = fields[i].getField();
 			tags[i] = field.getAnnotation(Tag.class).value();
@@ -92,8 +140,11 @@ public class TaggedFieldSerializer<T> extends FieldSerializer<T> {
 					break;
 				}
 			}
-			if (cachedField == null) throw new KryoException("Unknown field tag: " + tag + " (" + getType().getName() + ")");
-			cachedField.read(input, object);
+			if (cachedField == null) {
+				if (!isIgnoreUnkownTags()) throw new KryoException("Unknown field tag: " + tag + " (" + getType().getName() + ")");
+			} else {
+				cachedField.read(input, object);
+			}
 		}
 		return object;
 	}

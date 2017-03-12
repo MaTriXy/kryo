@@ -1,17 +1,34 @@
+/* Copyright (c) 2008, Nathan Sweet
+ * All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
+ * conditions are met:
+ * 
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+ * disclaimer in the documentation and/or other materials provided with the distribution.
+ * - Neither the name of Esoteric Software nor the names of its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+ * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 package com.esotericsoftware.kryo.io;
 
-import java.io.DataOutput;
-import java.io.IOException;
+import static com.esotericsoftware.kryo.util.UnsafeUtil.*;
+
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
-import sun.nio.ch.DirectBuffer;
-
-import static com.esotericsoftware.kryo.util.UnsafeUtil.*;
 import com.esotericsoftware.kryo.KryoException;
 import com.esotericsoftware.kryo.util.Util;
+
+import sun.nio.ch.DirectBuffer;
 
 /** An optimized OutputStream that writes data directly into the off-heap memory. Utility methods are provided for efficiently
  * writing primitive types, arrays of primitive types and strings. It uses @link{sun.misc.Unsafe} to achieve a very good
@@ -21,7 +38,7 @@ import com.esotericsoftware.kryo.util.Util;
  * Important notes:<br/>
  * <li>This class increases performance, but may result in bigger size of serialized representation.</li>
  * <li>Bulk operations, e.g. on arrays of primitive types, are always using native byte order.</li>
- * <li>Fixed-size int, long, short, float and double elements are always written using native byte order.</li>
+ * <li>Fixed-size char, int, long, short, float and double elements are always written using native byte order.</li>
  * <li>Best performance is achieved if no variable length encoding for integers is used.</li>
  * <li>Output serialized using this class should always be deserilized using @link{UnsafeMemoryInput}</li>
  * 
@@ -132,15 +149,15 @@ public final class UnsafeMemoryOutput extends ByteBufferOutput {
 
 	/** Writes a 2 byte char. */
 	final public void writeChar (char value) throws KryoException {
-		super.niobuffer.position(position);
-		super.writeChar(value);
+		require(2);
+		unsafe().putChar(bufaddress + position, value);
+		position += 2;
 	}
 
 	/** Writes an 8 byte double. */
 	final public void writeDouble (double value) throws KryoException {
 		require(8);
 		unsafe().putDouble(bufaddress + position, value);
-		double check = unsafe().getDouble(bufaddress + position);
 		position += 8;
 	}
 
@@ -207,9 +224,9 @@ public final class UnsafeMemoryOutput extends ByteBufferOutput {
 			return 4;
 		}
 
-		varInt |= (0x80 << 24);
+		varInt |= (0x80L << 24);
 		varInt |= ((value & 0x7F) << 32);
-		varInt &= 0xFFFFFFFFL;
+		varInt &= 0xFFFFFFFFFL;
 		writeLittleEndianLong(varInt);
 		position -= 3;
 		return 5;
@@ -224,7 +241,7 @@ public final class UnsafeMemoryOutput extends ByteBufferOutput {
 		value >>>= 7;
 
 		if (value == 0) {
-			write(varInt);
+			writeByte(varInt);
 			return 1;
 		}
 
@@ -261,8 +278,9 @@ public final class UnsafeMemoryOutput extends ByteBufferOutput {
 			return 4;
 		}
 
-		varInt |= (0x80 << 24);
-		long varLong = (varInt & 0xFFFFFFFFL) | (((long)(value & 0x7F)) << 32);
+		varInt |= (0x80L << 24);
+		long varLong = (varInt & 0xFFFFFFFFL);
+		varLong |= ((value & 0x7F) << 32);
 
 		value >>>= 7;
 
@@ -273,7 +291,7 @@ public final class UnsafeMemoryOutput extends ByteBufferOutput {
 		}
 
 		varLong |= (0x80L << 32);
-		varLong |= (((long)(value & 0x7F)) << 40);
+		varLong |= ((value & 0x7F) << 40);
 
 		value >>>= 7;
 
@@ -284,7 +302,7 @@ public final class UnsafeMemoryOutput extends ByteBufferOutput {
 		}
 
 		varLong |= (0x80L << 40);
-		varLong |= (((long)(value & 0x7F)) << 48);
+		varLong |= ((value & 0x7F) << 48);
 
 		value >>>= 7;
 
@@ -295,7 +313,7 @@ public final class UnsafeMemoryOutput extends ByteBufferOutput {
 		}
 
 		varLong |= (0x80L << 48);
-		varLong |= (((long)(value & 0x7F)) << 56);
+		varLong |= ((value & 0x7F) << 56);
 
 		value >>>= 7;
 
@@ -306,7 +324,7 @@ public final class UnsafeMemoryOutput extends ByteBufferOutput {
 
 		varLong |= (0x80L << 56);
 		writeLittleEndianLong(varLong);
-		write((byte)((value & 0x7F)));
+		writeByte((int)(value & 0xFF));
 		return 9;
 	}
 
@@ -372,12 +390,18 @@ public final class UnsafeMemoryOutput extends ByteBufferOutput {
 		writeBytes(object, doubleArrayBaseOffset, 0, bytesToCopy);
 	}
 
+	/** Writes the bytes. Note the byte[] length is not written. */
+	public void writeBytes (byte[] bytes) throws KryoException {
+		if (bytes == null) throw new IllegalArgumentException("bytes cannot be null.");
+		writeBytes(bytes, 0, (long)bytes.length);
+	}
+
 	/*** Output count bytes from a memory region starting at the given #{offset} inside the in-memory representation of obj object.
 	 * @param obj
 	 * @param offset
 	 * @param count */
 	final public void writeBytes (Object obj, long offset, long count) throws KryoException {
-		writeBytes(obj, 0, offset, count);
+		writeBytes(obj, byteArrayBaseOffset, offset, count);
 	}
 
 	/*** Output count bytes from a memory region starting at the given #{offset} inside the in-memory representation of obj object.

@@ -1,6 +1,24 @@
+/* Copyright (c) 2008, Nathan Sweet
+ * All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
+ * conditions are met:
+ * 
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+ * disclaimer in the documentation and/or other materials provided with the distribution.
+ * - Neither the name of Esoteric Software nor the names of its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+ * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
+
 package com.esotericsoftware.kryo.util;
 
-import static com.esotericsoftware.kryo.util.UnsafeUtil.unsafe;
 import static com.esotericsoftware.minlog.Log.*;
 
 import java.lang.reflect.Constructor;
@@ -14,15 +32,12 @@ import sun.misc.Cleaner;
 import sun.misc.Unsafe;
 import sun.nio.ch.DirectBuffer;
 
-/**
- * A few utility methods for using @link{sun.misc.Unsafe}, mostly for private
- * use.
+/** A few utility methods for using @link{sun.misc.Unsafe}, mostly for private use.
  * 
- * Use of Unsafe on Android is forbidden, as Android provides only a very limited
- * functionality for this class compared to the JDK version.
+ * Use of Unsafe on Android is forbidden, as Android provides only a very limited functionality for this class compared to the JDK
+ * version.
  * 
- * @author Roman Levenstein <romixlev@gmail.com>
- */
+ * @author Roman Levenstein <romixlev@gmail.com> */
 
 public class UnsafeUtil {
 	final static private Unsafe _unsafe;
@@ -34,10 +49,9 @@ public class UnsafeUtil {
 	final static public long shortArrayBaseOffset;
 	final static public long charArrayBaseOffset;
 
-	// Constructor to be used for creation of ByteBuffers that use preallocated memory regions 
+	// Constructor to be used for creation of ByteBuffers that use preallocated memory regions
 	static Constructor<? extends ByteBuffer> directByteBufferConstr;
-	
-	
+
 	static {
 		Unsafe tmpUnsafe = null;
 		long tmpByteArrayBaseOffset = 0;
@@ -77,7 +91,7 @@ public class UnsafeUtil {
 		doubleArrayBaseOffset = tmpDoubleArrayBaseOffset;
 		_unsafe = tmpUnsafe;
 	}
-	
+
 	static {
 		ByteBuffer buf = ByteBuffer.allocateDirect(1);
 		try {
@@ -85,24 +99,20 @@ public class UnsafeUtil {
 			directByteBufferConstr.setAccessible(true);
 		} catch (Exception e) {
 			directByteBufferConstr = null;
-		}		
+		}
 	}
-	
-	/***
-	 * Return the sun.misc.Unsafe object. If null is returned,
-	 * no further Unsafe-related methods are allowed to be invoked from UnsafeUtil.
-	 *  
-	 * @return instance of sun.misc.Unsafe or null, if this class is not available or not accessible
-	 */
-	final static public Unsafe unsafe() {
+
+	/*** Return the sun.misc.Unsafe object. If null is returned, no further Unsafe-related methods are allowed to be invoked from
+	 * UnsafeUtil.
+	 * 
+	 * @return instance of sun.misc.Unsafe or null, if this class is not available or not accessible */
+	final static public Unsafe unsafe () {
 		return _unsafe;
 	}
-	
-	/***
-	 * Sort the set of lists by their offsets from the object start address.
+
+	/*** Sort the set of lists by their offsets from the object start address.
 	 * 
-	 * @param allFields set of fields to be sorted by their offsets
-	 */
+	 * @param allFields set of fields to be sorted by their offsets */
 	public static Field[] sortFieldsByOffset (List<Field> allFields) {
 		Field[] allFieldsArray = allFields.toArray(new Field[] {});
 
@@ -122,39 +132,33 @@ public class UnsafeUtil {
 		for (Field f : allFields) {
 			if (TRACE) trace("kryo", "Field '" + f.getName() + "' at offset " + unsafe().objectFieldOffset(f));
 		}
-		
+
 		return allFieldsArray;
 	}
-	
-	/***
-	 * Create a ByteBuffer that uses a provided (off-heap) memory region instead of allocating a new one.
+
+	/*** Create a ByteBuffer that uses a provided (off-heap) memory region instead of allocating a new one.
 	 * 
 	 * @param address address of the memory region to be used for a ByteBuffer
 	 * @param size size of the memory region
-	 * @return a new ByteBuffer that uses a provided memory region instead of allocating a new one 
-	 */
-	final static public ByteBuffer getDirectBufferAt(long address, int size) {
-		if(directByteBufferConstr == null)
-			return null;
+	 * @return a new ByteBuffer that uses a provided memory region instead of allocating a new one */
+	final static public ByteBuffer getDirectBufferAt (long address, int size) {
+		if (directByteBufferConstr == null) return null;
 		try {
 			return directByteBufferConstr.newInstance(address, size, null);
 		} catch (Exception e) {
 			throw new RuntimeException("Cannot allocate ByteBuffer at a given address: " + address, e);
-		}		
+		}
 	}
 
-	/***
-	 * Release a direct buffer.  
+	/*** Release a direct buffer.
 	 * 
-	 * NOTE: If Cleaner is not accessible due to SecurityManager restrictions, reflection could be used
-	 * to obtain the "clean" method and then invoke it.
-	 */
-	static public void releaseBuffer(ByteBuffer niobuffer) {
-		if(niobuffer != null && niobuffer.isDirect()) {
-			Object cleaner = ((DirectBuffer) niobuffer).cleaner();
-			if(cleaner != null)
-				((Cleaner)cleaner).clean();
+	 * NOTE: If Cleaner is not accessible due to SecurityManager restrictions, reflection could be used to obtain the "clean"
+	 * method and then invoke it. */
+	static public void releaseBuffer (ByteBuffer niobuffer) {
+		if (niobuffer != null && niobuffer.isDirect()) {
+			Object cleaner = ((DirectBuffer)niobuffer).cleaner();
+			if (cleaner != null) ((Cleaner)cleaner).clean();
 			niobuffer = null;
-		}		
+		}
 	}
 }

@@ -1,14 +1,39 @@
+/* Copyright (c) 2008, Nathan Sweet
+ * All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
+ * conditions are met:
+ * 
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+ * disclaimer in the documentation and/or other materials provided with the distribution.
+ * - Neither the name of Esoteric Software nor the names of its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+ * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 package com.esotericsoftware.kryo;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.net.URL;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.EnumSet;
+import java.util.List;
+import java.util.Locale;
 import java.util.TimeZone;
+
+import org.objenesis.strategy.StdInstantiatorStrategy;
 
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
@@ -119,7 +144,8 @@ public class DefaultSerializersTest extends KryoTestCase {
 		roundTrip(3, 3, "a");
 		roundTrip(3, 3, "\n");
 		roundTrip(2, 2, "");
-		roundTrip(100, 100,  "ABCDEFGHIJKLMNOPQRSTUVWXYZ\rabcdefghijklmnopqrstuvwxyz\n1234567890\t\"!`?'.,;:()[]{}<>|/@\\^$-%+=#_&~*");
+		roundTrip(100, 100,
+			"ABCDEFGHIJKLMNOPQRSTUVWXYZ\rabcdefghijklmnopqrstuvwxyz\n1234567890\t\"!`?'.,;:()[]{}<>|/@\\^$-%+=#_&~*");
 
 		roundTrip(21, 21, "abcdef\u00E1\u00E9\u00ED\u00F3\u00FA\u7C9F");
 	}
@@ -127,7 +153,7 @@ public class DefaultSerializersTest extends KryoTestCase {
 	public void testVoid () throws InstantiationException, IllegalAccessException {
 		roundTrip(1, 1, (Void)null);
 	}
-	
+
 	public void testNull () {
 		kryo = new Kryo();
 		kryo.setRegistrationRequired(true);
@@ -155,16 +181,49 @@ public class DefaultSerializersTest extends KryoTestCase {
 		roundTrip(2, 9, new Date(0));
 		roundTrip(4, 9, new Date(1234567));
 		roundTrip(10, 9, new Date(-1234567));
+
+		kryo.register(java.sql.Date.class);
+		roundTrip(10, 9, new java.sql.Date(Long.MIN_VALUE));
+		roundTrip(2, 9, new java.sql.Date(0));
+		roundTrip(4, 9, new java.sql.Date(1234567));
+		roundTrip(10, 9, new java.sql.Date(Long.MAX_VALUE));
+		roundTrip(10, 9, new java.sql.Date(-1234567));
+
+		kryo.register(java.sql.Time.class);
+		roundTrip(10, 9, new java.sql.Time(Long.MIN_VALUE));
+		roundTrip(2, 9, new java.sql.Time(0));
+		roundTrip(4, 9, new java.sql.Time(1234567));
+		roundTrip(10, 9, new java.sql.Time(Long.MAX_VALUE));
+		roundTrip(10, 9, new java.sql.Time(-1234567));
+
+		kryo.register(java.sql.Timestamp.class);
+		roundTrip(10, 9, new java.sql.Timestamp(Long.MIN_VALUE));
+		roundTrip(2, 9, new java.sql.Timestamp(0));
+		roundTrip(4, 9, new java.sql.Timestamp(1234567));
+		roundTrip(10, 9, new java.sql.Timestamp(Long.MAX_VALUE));
+		roundTrip(10, 9, new java.sql.Timestamp(-1234567));
 	}
 
 	public void testBigDecimalSerializer () {
 		kryo.register(BigDecimal.class);
+		kryo.register(BigDecimalSubclass.class);
 		roundTrip(5, 8, BigDecimal.valueOf(12345, 2));
+		roundTrip(7, 10, new BigDecimal("12345.12345"));
+		roundTrip(4, 7, BigDecimal.ZERO);
+		roundTrip(4, 7, BigDecimal.ONE);
+		roundTrip(4, 7, BigDecimal.TEN);
+		roundTrip(5, 8, new BigDecimalSubclass(new BigInteger("12345"), 2));
+		roundTrip(7, 10, new BigDecimalSubclass("12345.12345"));
 	}
 
 	public void testBigIntegerSerializer () {
 		kryo.register(BigInteger.class);
+		kryo.register(BigIntegerSubclass.class);
 		roundTrip(8, 8, BigInteger.valueOf(1270507903945L));
+		roundTrip(3, 3, BigInteger.ZERO);
+		roundTrip(3, 3, BigInteger.ONE);
+		roundTrip(3, 3, BigInteger.TEN);
+		roundTrip(8, 8, new BigIntegerSubclass("1270507903945"));
 	}
 
 	public void testEnumSerializer () {
@@ -228,8 +287,8 @@ public class DefaultSerializersTest extends KryoTestCase {
 		calendar.set(1980, 7, 26, 12, 22, 46);
 		roundTrip(64, 73, calendar);
 	}
-	
-	public void testClassSerializer() {
+
+	public void testClassSerializer () {
 		kryo.register(Class.class);
 		kryo.register(ArrayList.class);
 		kryo.setRegistrationRequired(false);
@@ -279,6 +338,46 @@ public class DefaultSerializersTest extends KryoTestCase {
 		assertEquals(TestEnum.class, kryo.readObject(in, Class.class));
 	}
 
+	public void testLocaleSerializer () {
+		kryo.setRegistrationRequired(true);
+		kryo.register(Locale.class);
+
+		roundTrip(5, 5, Locale.ENGLISH);
+		roundTrip(6, 6, Locale.US);
+		roundTrip(6, 6, Locale.SIMPLIFIED_CHINESE);
+		roundTrip(5, 5, new Locale("es"));
+		roundTrip(16, 16, new Locale("es", "ES", "áéíóú"));
+	}
+
+	public void testCharset () {
+		List<String> css = Arrays.asList("ISO-8859-1", "US-ASCII", "UTF-8", "UTF-16", "UTF-16BE", "UTF-16LE");
+
+		for (String cs : css) {
+			Charset charset = Charset.forName(cs);
+			kryo.register(charset.getClass());
+			int expectedLength = 1 + cs.length();
+			roundTrip(expectedLength, expectedLength, charset);
+		}
+
+		kryo = new Kryo();
+		kryo.setRegistrationRequired(false);
+
+		for (String cs : css) {
+			Charset charset = Charset.forName(cs);
+			int expectedLength = 3 + charset.getClass().getName().length() + cs.length();
+			roundTrip(expectedLength, expectedLength, charset);
+		}
+	}
+
+	public void testURLSerializer () throws Exception {
+		kryo.setInstantiatorStrategy(new Kryo.DefaultInstantiatorStrategy(new StdInstantiatorStrategy()));
+		kryo.setRegistrationRequired(true);
+		kryo.register(URL.class);
+
+		roundTrip(41, 41, new URL("https://github.com/EsotericSoftware/kryo"));
+		roundTrip(78, 78, new URL("https://github.com:443/EsotericSoftware/kryo/pulls?utf8=%E2%9C%93&q=is%3Apr"));
+	}
+
 	public enum TestEnum {
 		a, b, c
 	}
@@ -291,4 +390,25 @@ public class DefaultSerializersTest extends KryoTestCase {
 		c {
 		}
 	}
+
+	static class BigDecimalSubclass extends BigDecimal {
+		public BigDecimalSubclass (BigInteger unscaledVal, int scale) {
+			super(unscaledVal, scale);
+		}
+
+		public BigDecimalSubclass (String val) {
+			super(val);
+		}
+	}
+
+	static class BigIntegerSubclass extends BigInteger {
+		public BigIntegerSubclass (byte[] val) {
+			super(val);
+		}
+
+		public BigIntegerSubclass (String val) {
+			super(val);
+		}
+	}
+
 }

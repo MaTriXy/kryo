@@ -1,10 +1,28 @@
+/* Copyright (c) 2008, Nathan Sweet
+ * All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
+ * conditions are met:
+ * 
+ * - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+ * - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following
+ * disclaimer in the documentation and/or other materials provided with the distribution.
+ * - Neither the name of Esoteric Software nor the names of its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+ * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 package com.esotericsoftware.kryo.io;
 
-import com.esotericsoftware.kryo.KryoException;
-
 import java.io.IOException;
 import java.io.OutputStream;
+
+import com.esotericsoftware.kryo.KryoException;
 
 /** An OutputStream that buffers data in a byte array and optionally flushes to another OutputStream. Utility methods are provided
  * for efficiently writing primitive types and strings.
@@ -36,6 +54,8 @@ public class Output extends OutputStream {
 	 * @param maxBufferSize The buffer is doubled as needed until it exceeds maxBufferSize and an exception is thrown. Can be -1
 	 *           for no maximum. */
 	public Output (int bufferSize, int maxBufferSize) {
+		if (bufferSize > maxBufferSize && maxBufferSize != -1) throw new IllegalArgumentException(
+			"bufferSize: " + bufferSize + " cannot be greater than maxBufferSize: " + maxBufferSize);
 		if (maxBufferSize < -1) throw new IllegalArgumentException("maxBufferSize cannot be < -1: " + maxBufferSize);
 		this.capacity = bufferSize;
 		this.maxCapacity = maxBufferSize == -1 ? Integer.MAX_VALUE : maxBufferSize;
@@ -81,8 +101,8 @@ public class Output extends OutputStream {
 		total = 0;
 	}
 
-	/** Sets the buffer that will be written to. {@link #setBuffer(byte[], int)} is called with the specified buffer's length as the
-	 * maxBufferSize. */
+	/** Sets the buffer that will be written to. {@link #setBuffer(byte[], int)} is called with the specified buffer's length as
+	 * the maxBufferSize. */
 	public void setBuffer (byte[] buffer) {
 		setBuffer(buffer, buffer.length);
 	}
@@ -92,6 +112,8 @@ public class Output extends OutputStream {
 	 * @param maxBufferSize The buffer is doubled as needed until it exceeds maxBufferSize and an exception is thrown. */
 	public void setBuffer (byte[] buffer, int maxBufferSize) {
 		if (buffer == null) throw new IllegalArgumentException("buffer cannot be null.");
+		if (buffer.length > maxBufferSize && maxBufferSize != -1) throw new IllegalArgumentException(
+			"buffer has length: " + buffer.length + " cannot be greater than maxBufferSize: " + maxBufferSize);
 		if (maxBufferSize < -1) throw new IllegalArgumentException("maxBufferSize cannot be < -1: " + maxBufferSize);
 		this.buffer = buffer;
 		this.maxCapacity = maxBufferSize == -1 ? Integer.MAX_VALUE : maxBufferSize;
@@ -114,7 +136,7 @@ public class Output extends OutputStream {
 	}
 
 	/** Returns the current position in the buffer. This is the number of bytes that have not been flushed. */
-	final public int position () {
+	public int position () {
 		return position;
 	}
 
@@ -124,7 +146,7 @@ public class Output extends OutputStream {
 	}
 
 	/** Returns the total number of bytes written. This may include bytes that have not been flushed. */
-	final public long total () {
+	public long total () {
 		return total + position;
 	}
 
@@ -161,6 +183,7 @@ public class Output extends OutputStream {
 		if (outputStream == null) return;
 		try {
 			outputStream.write(buffer, 0, position);
+			outputStream.flush();
 		} catch (IOException ex) {
 			throw new KryoException(ex);
 		}
@@ -241,8 +264,8 @@ public class Output extends OutputStream {
 		buffer[position++] = (byte)value;
 	}
 
-	/** Writes a 1-5 byte int. This stream may consider such a variable length encoding request as a hint. It is not guaranteed that
-	 * a variable length encoding will be really used. The stream may decide to use native-sized integer representation for
+	/** Writes a 1-5 byte int. This stream may consider such a variable length encoding request as a hint. It is not guaranteed
+	 * that a variable length encoding will be really used. The stream may decide to use native-sized integer representation for
 	 * efficiency reasons.
 	 * 
 	 * @param optimizePositive If true, small positive numbers will be more efficient (1 byte) and small negative numbers will be

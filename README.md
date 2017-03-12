@@ -1,19 +1,24 @@
 ![KryoNet](https://raw.github.com/wiki/EsotericSoftware/kryo/images/logo.jpg)
 
-[![Build Status](https://jenkins.inoio.de/buildStatus/icon?job=kryo)](https://jenkins.inoio.de/job/kryo/)
+[![Build Status](https://jenkins.inoio.de/buildStatus/icon?job=kryo&foo=bar)](https://jenkins.inoio.de/job/kryo/)
+[![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.esotericsoftware/kryo/badge.svg)](http://search.maven.org/#search%7Cga%7C1%7Cg%3A%22com.esotericsoftware%22%20AND%20a%3Akryo)
+[![Join the chat at https://gitter.im/EsotericSoftware/kryo](https://badges.gitter.im/EsotericSoftware/kryo.svg)](https://gitter.im/EsotericSoftware/kryo)
 
 Kryo is a fast and efficient object graph serialization framework for Java. The goals of the project are speed, efficiency, and an easy to use API. The project is useful any time objects need to be persisted, whether to a file, database, or over the network.
 
 Kryo can also perform automatic deep and shallow copying/cloning. This is direct copying from object to object, not object->bytes->object.
 
-This documentation is for v2 of Kryo. See [V1Documentation](https://github.com/EsotericSoftware/kryo/wiki/Documentation-for-Kryo-version-1.x) for v1.x.
+This documentation is for v2+ of Kryo. See [V1Documentation](https://github.com/EsotericSoftware/kryo/wiki/Documentation-for-Kryo-version-1.x) for v1.x.
 
 If you are planning to use Kryo for network communication, the [KryoNet](https://github.com/EsotericSoftware/kryonet) project may prove useful.
 
 ## Contents
 
-- [New in release 2.24.0](#new-in-release-2240)
+- [New in release 4.0.0](#new-in-release-400)
+- [Versioning Semantics, Upgrading](#versioning-semantics-upgrading)
 - [Installation](#installation)
+ - [Integration with Maven](#integration-with-maven)
+ - [Using Kryo without Maven](#using-kryo-without-maven)
 - [Quickstart](#quickstart)
 - [IO](#io)
 - [Unsafe-based IO](#unsafe-based-io)
@@ -37,19 +42,52 @@ If you are planning to use Kryo for network communication, the [KryoNet](https:/
 - [Threading](#threading)
 - [Pooling Kryo instances](#pooling-kryo-instances)
 - [Logging](#logging)
-- [Integration with Maven](#integration-with-maven)
-- [Using Kryo without Maven](#using-kryo-without-maven)
 - [Scala](#scala)
 - [Objective-C](#objective-c)
 - [Benchmarks](#benchmarks)
 - [Projects using Kryo](#projects-using-kryo)
 - [Contact / Mailing list](#contact--mailing-list)
 
-## New in release 2.24.0
+## New in release 4.0.0
 
-The 2.24.0 release fixes many reported issues and improves stability and performance. It also introduces a new feature: [annotations](#class-fields-annotations) that can be used to indicate which serializer should be used for a given field of a class.
+The 4.0.0 release brings several new features and improvements for stability and performance. Here are some highlights and things you definitely should be aware of (left aside
+that studying the change log and testing the upgrade carefully is a must anyways).
 
-See [ChangeLog](https://github.com/EsotericSoftware/kryo/blob/master/CHANGES.md) for more details about this release.
+* *BREAKING (data):* Generics handling is more robust now, the former optimization for smaller size (but increased serialization time) is now optional and disabled by default.<br/>
+  **Important:** This change breaks the serialization format of the `FieldSerializer` for generic fields, therefore generic classes serialized with Kryo 3
+  and `FieldSerializer` cannot be deserialized with Kryo 4 by default. To deserialize such Kryo 3 serialized generic classes you have to set
+  `kryo.getFieldSerializerConfig().setOptimizedGenerics(true);`! In any case, test that (de)serialization works with the upgrade.
+* *BREAKING (source/binary):* `protected Kryo.isClousre` is renamed to `Kryo.isClosure`, `Generics` is moved to a different package and no longer part of the public api.
+* Since Kryo 4 the public api is reduced. Since java does not allow fine grained settings for visibility, some classes that are `public` but not considered to
+  be part of the public api are now marked with "INTERNAL API".
+* Kryo 4 adds serializers for Java 8 `java.time.*` and `Optional*`.
+* Now we test serialization compatibility for the different binary formats and default serializers for every change.
+* Many more improvements and fixes thanks to many contributors!
+
+For details check out the [Release Notes](https://github.com/EsotericSoftware/kryo/releases/tag/kryo-parent-4.0.0).
+
+## Versioning Semantics, Upgrading
+
+For a serialization library the most important value is that it can deserialize previously serialized data.
+With kryo we're following these rules of thumb for versioning:
+
+1. we increase the major version if serialization compatibility is broken (data serialized with the previous version cannot be deserialized with the new version)
+2. we increase the minor version if binary or source compatibility of the documented public api is broken
+
+Re rule 1.): It's applied if any of the underlying binary formats is changed (see [IO](#io) and [Unsafe-based IO](unsafe-based-io))
+  or if the data written by a commonly used serializer is changed (e.g. some [default serializer](#default-serializers)).
+
+Re rule 2.): Due to the limits of java's access modifiers the technical api is broader than the semantic api (documented on this page).
+  Therefore technical binary compatibility may be broken while no user is affected.
+
+Keep in mind, that any upgrade of a serialization library is a significant event.
+When upgrading kryo check the included changes and test thoroughly the new version with your own data structures and your setup.
+
+We try to make it as safe and easy as possible:
+* at development time we test serialization compatibility for the different binary formats and default serializers
+* at development time we track binary and source compatibility with [clirr](http://www.mojohaus.org/clirr-maven-plugin/)
+* for each release we provide a [ChangeLog](https://github.com/EsotericSoftware/kryo/blob/master/CHANGES.md) that additionally contains
+a section reporting the serialization, binary and source compatibilities (for reporting binary and source compatibility we use [japi-compliance-checker](https://github.com/lvc/japi-compliance-checker/))
 
 ## Installation
 
@@ -61,9 +99,19 @@ To use the official release of Kryo, please use the following snippet in your po
 
 ```xml
     <dependency>
-        <groupId>com.esotericsoftware.kryo</groupId>
+        <groupId>com.esotericsoftware</groupId>
         <artifactId>kryo</artifactId>
-        <version>2.24.0</version>
+        <version>4.0.0</version>
+    </dependency>
+```
+
+If you experience issues because you already have a different version of asm in your classpath, you can use the kryo-shaded jar which has its version of asm included, relocated in a different package:
+
+```xml
+    <dependency>
+        <groupId>com.esotericsoftware</groupId>
+        <artifactId>kryo-shaded</artifactId>
+        <version>4.0.0</version>
     </dependency>
 ```
 
@@ -77,15 +125,15 @@ If you want to test the latest snapshot of Kryo, please use the following snippe
     </repository>
     
     <dependency>
-       <groupId>com.esotericsoftware.kryo</groupId>
+       <groupId>com.esotericsoftware</groupId>
        <artifactId>kryo</artifactId>
-        <version>2.24.1-SNAPSHOT</version>
+        <version>4.0.1-SNAPSHOT</version>
     </dependency>
 ```
 
 ### Using Kryo without Maven
 
-If you use Kryo without Maven, be aware that Kryo jar file has a couple of external dependencies, whose JARs you need to add to your classpath as well. These dependencies are [MinLog logging library](http://code.google.com/p/minlog/) and [Objenesis library](https://code.google.com/p/objenesis/).
+If you use Kryo without Maven, be aware that Kryo jar file has a couple of external dependencies, whose JARs you need to add to your classpath as well. These dependencies are [MinLog logging library](https://github.com/EsotericSoftware/minlog/) and [Objenesis library](https://code.google.com/p/objenesis/).
 
 
 ## Quickstart
@@ -125,14 +173,13 @@ Kryo provides additional IO classes, which are based on the functionalities expo
 
 For the case you need to serialize to or deserialize from direct-memory ByteBuffers or even off-heap memory, there are two dedicated classes UnsafeMemoryInput and UnsafeMemoryOutput whose instances can be used for this purpose instead of the usual Input and Output classes.
 
-Using Unsafe-based IO may result in a quite significant performance boost (sometimes up-to an oder of magnitude), depending on your application. In particular, it helps a lot when serializing large primitive arrays as part of your object graphs.
+Using Unsafe-based IO may result in a quite significant performance boost (sometimes up-to an order of magnitude), depending on your application. In particular, it helps a lot when serializing large primitive arrays as part of your object graphs.
 
 ### ** DISCLAIMER ABOUT USING UNSAFE-BASED IO **
 
-*Unsafe-based IO is not 100% compatible with Kryo's Input and Output streams when it comes to the binary  format of serialized data!* 
+*Unsafe-based IO is not 100% compatible with Kryo's Input and Output streams when it comes to the binary format of serialized data.* 
 
-This means that data written by Unsafe-based output streams can be read only by  
-Unsafe-based input streams, but not by usual Input streams. The same applies on the opposite direction: data written by usual Output streams cannot be correctly read by Unsafe-based input streams.
+This means that data written by Unsafe-based output streams can be read only by Unsafe-based input streams, but not by usual Input streams. The same applies on the opposite direction: data written by usual Output streams cannot be correctly read by Unsafe-based input streams.
 
 It should be safe to use Unsafe IO streams as long as both serialization and deserialization are using them and are executed on the same processor architecture (more precisely, if the endianness and internal representation of native integer and floating point types is the same).
 
@@ -148,7 +195,7 @@ Kryo is a serialization framework. It doesn't enforce a schema or care what data
     		output.writeInt(object.getRGB());
     	}
     
-    	public Color read (Kryo kryo, Input input, Class<T> type) {
+    	public Color read (Kryo kryo, Input input, Class<Color> type) {
     		return new Color(input.readInt(), true);
     	}
     }
@@ -248,7 +295,7 @@ Some serializers allow extra information to be provided so that the number of by
     Kryo kryo = new Kryo();
     FieldSerializer someClassSerializer = new FieldSerializer(kryo, SomeClass.class);
     CollectionSerializer listSerializer = new CollectionSerializer();
-    listSerializer.setElementClass(String.class);
+    listSerializer.setElementClass(String.class, kryo.getSerializer(String.class));
     listSerializer.setElementsCanBeNull(false);
     someClassSerializer.getField("list").setClass(LinkedList.class, listSerializer);
     kryo.register(SomeClass.class, someClassSerializer);
@@ -264,9 +311,9 @@ In this example, FieldSerializer will be used for SomeClass. FieldSerializer is 
 
 ## FieldSerializer
 
-By default, most classes will end up using FieldSerializer. It essentially does what hand written serialization would, but does it automatically. FieldSerializer does direct assignment to the object's fields. If the fields are public, protected, or default access (package private), bytecode generation is used for maximum speed (see [ReflectASM](https://github.com/EsotericSoftware/reflectasm)). For private fields, setAccessible and cached reflection is used, which is still quite fast.
+By default, most classes will end up using FieldSerializer. It essentially does what hand written serialization would, but does it automatically. FieldSerializer does direct assignment to the object's fields. If the fields are public, protected, or default access (package private) and not marked as final, bytecode generation is used for maximum speed (see [ReflectASM](https://github.com/EsotericSoftware/reflectasm)). For private fields, setAccessible and cached reflection is used, which is still quite fast.
 
-Other general purpose serializes are provided, such as BeanSerializer, TaggedFieldSerializer, and CompatibleFieldSerializer. Additional serializers are available in a separate project on github, [kryo-serializers](https://github.com/magro/kryo-serializers).
+Other general purpose serializes are provided, such as BeanSerializer, TaggedFieldSerializer, CompatibleFieldSerializer, and VersionFieldSerializer. Additional serializers are available in a separate project on github, [kryo-serializers](https://github.com/magro/kryo-serializers).
 
 ## KryoSerializable
 
@@ -398,11 +445,13 @@ When ReflectASM or reflection cannot be used, Kryo can be configured to use an I
 
 Note that classes must be designed to be created in this way. If a class expects its constructor to be called, it may be in an uninitialized state when created through this mechanism.
 
-In many situations, you may want to have a strategy, where Kryo first tries to find and use a no-arg constructor and if it fails to do so, it should try to use `StdInstantiatorStrategy` as a fallback, because this one does not invoke any constructor at all. This is actually the default configuration and could be expressed like this:
+In many situations, you may want to have a strategy, where Kryo first tries to find and use a no-arg constructor and if it fails to do so, it should try to use `StdInstantiatorStrategy` as a fallback, because this one does not invoke any constructor at all. The configuration for this behavior could be expressed like this:
 
 ```java
-kryo.setInstantiatorStrategy(new DefaultInstantiatorStrategy(new StdInstantiatorStrategy()));
+kryo.setInstantiatorStrategy(new Kyro.DefaultInstantiatorStrategy(new StdInstantiatorStrategy()));
 ```
+
+However, the default behavior is to require a no-arg constructor.
 
 Objenesis can also create new objects using Java's built-in serialization mechanism. Using this, the class must implement java.io.Serializable and the first zero argument constructor in a super class is invoked.
 
@@ -442,7 +491,7 @@ A serialization library needs special knowledge on how to create new instances, 
 
 The Serializer class has a `copy` method that does the work. These methods can be ignored when implementing application specific serializers if the copying functionality will not be used. All serializers provided with Kryo support copying. Multiple references to the same object and circular references are handled by the framework automatically.
 
-Similar to the `read()` Serializer method, `kryo.reference()` must be called before Kryo can be used to copy child objects. See [Serializers](#Serializers) for more information.
+Similar to the `read()` Serializer method, `kryo.reference()` must be called before Kryo can be used to copy child objects. See [Serializers](#serializers) for more information.
 
 Similar to KryoSerializable, classes can implement KryoCopyable to do their own copying:
 
@@ -508,17 +557,38 @@ To read the chunked data, InputChunked is used. It extends Input, so has all the
 
 ## Compatibility
 
-For some needs, especially long term storage of serialized bytes, it can be important how serialization handles changes to classes. This is known as forward and backward compatibility. By default, most user classes will be serialized using FieldSerializer, which does not support adding, removing, or changing the type of fields without invalidating previously serialized bytes. This is acceptable in many situations, such as sending data over a network. If necessary, an alternate generic serializer can be used:
+For some needs, especially long term storage of serialized bytes, it can be important how serialization handles changes to classes. This is known as forward (reading bytes serialized by newer classes) and backward (reading bytes serialized by older classes) compatibility.
+
+FieldSerializer is the most commonly used serializer. It is generic and can serialize most classes without any configuration. It is efficient and writes only the field data, without any extra information. It does not support adding, removing, or changing the type of fields without invalidating previously serialized bytes. This can be acceptable in many situations, such as when sending data over a network, but may not be a good choice for long term data storage because the Java classes cannot evolve. Because FieldSerializer attempts to read and write non-public fields by default, it is important to evaluate each class that will be serialized.
+
+When no serializer is specified, FieldSerializer is used by default. If necessary, an alternate generic serializer can be used:
 
 ```java
-    kryo.setDefaultSerializer(TaggedFieldSerializer.class);
+kryo.setDefaultSerializer(TaggedFieldSerializer.class);
 ```
 
-TaggedFieldSerializer only serializes fields that have a @Tag annotation. This is less flexible than FieldSerializer, which can handle most classes without needing annotations, but allows TaggedFieldSerializer to support adding new fields without invalidating previously serialized bytes. If a field is removed it will invalidate previously serialized bytes, so fields should be annotated with @Deprecated instead of being removed.
+BeanSerializer is very similar to FieldSerializer, except it uses bean getter and setter methods rather than direct field access. This slightly slower, but may be safer because it uses the public API to configure the object.
 
-Alternatively, CompatibleFieldSerializer can be used, which writes a simple schema before the object data the first time the class is encountered in the serialized bytes. Like FieldSerializer, it can serialize most classes without needing annotations. Fields can be added or removed without invalidating previously serialized bytes, but changing the type of a field is not supported. This has some additional overhead, both in speed and size, when compared to FieldSerializer.
+VersionFieldSerializer extends FieldSerializer and allows fields to have a `@Since(int)` annotation to indicate the version they were added. For a particular field, the value in `@Since` should never change once created. This is less flexible than FieldSerializer, which can handle most classes without needing annotations, but it provides backward compatibility. This means that new fields can be added, but removing, renaming or changing the type of any field will invalidate previous serialized bytes. VersionFieldSerializer has very little overhead (a single additional varint) compared to FieldSerializer.
 
-Additional serializers could be developed for forward and backward compatibility, such as a serializer that uses an external, hand written schema.
+TaggedFieldSerializer extends FieldSerializer to only serialize fields that have a `@Tag(int)` annotation, providing backward compatibility so new fields can be added. And it also provides forward compatibility by `setIgnoreUnknownTags(true)`, thus any unknown field tags will be ignored. TaggedFieldSerializer has two advantages over VersionFieldSerializer: 1) fields can be renamed and 2) fields marked with the `@Deprecated` annotation will be ignored when reading old bytes and won't be written to new bytes. Deprecation effectively removes the field from serialization, though the field and `@Tag` annotation must remain in the class. Deprecated fields can optionally be made private and/or renamed so they don't clutter the class (eg, `ignored`, `ignored2`). For these reasons, TaggedFieldSerializer generally provides more flexibility for classes to evolve. The downside is that it has a small amount of additional overhead compared to VersionFieldSerializer (an additional varint per field).
+
+CompatibleFieldSerializer extends FieldSerializer to provide both forward and backward compatibility, meaning fields can be added or removed without invalidating previously serialized bytes. Changing the type of a field is not supported. Like FieldSerializer, it can serialize most classes without needing annotations. The forward and backward compatibility comes at a cost: the first time the class is encountered in the serialized bytes, a simple schema is written containing the field name strings. Also, during serialization and deserialization buffers are allocated to perform chunked encoding. This is what enables CompatibleFieldSerializer to skip bytes for fields it does not know about. When Kryo is configured to use references, there can be a [problem](https://github.com/EsotericSoftware/kryo/issues/286#issuecomment-74870545) with CompatibleFieldSerializer if a field is removed. In case your class inheritance hierarchy contains same named fields, use the `CachedFieldNameStrategy.EXTENDED` strategy.
+
+```java
+class A {
+	String a;
+}
+
+class B extends A {
+	String a;
+}
+...
+// use `EXTENDED` name strategy, otherwise serialized object can't be deserialized correctly. Attention, `EXTENDED` strategy increases the serialized footprint.
+kryo.getFieldSerializerConfig().setCachedFieldNameStrategy(FieldSerializer.CachedFieldNameStrategy.EXTENDED);
+```
+
+Additional serializers can easily be developed for forward and backward compatibility, such as a serializer that uses an external, hand written schema.
 
 ## Interoperability
 
@@ -539,7 +609,7 @@ A very simple solution is to bind `Kryo` instances to Threads using `ThreadLocal
 
 ```java
 // Setup ThreadLocal of Kryo instances
-private ThreadLocal<Kryo> kryos = new ThreadLocal<Kryo>() {
+private static final ThreadLocal<Kryo> kryos = new ThreadLocal<Kryo>() {
 	protected Kryo initialValue() {
 		Kryo kryo = new Kryo();
 		// configure kryo instance, customize settings
@@ -608,6 +678,7 @@ See the following projects which provide serializers for Scala classes:
 - [akka-kryo-serialization](https://github.com/romix/akka-kryo-serialization) (Kryo serializers for Scala and Akka)
 - [Twitter's Scalding](https://github.com/twitter/scalding) (Scala API for Cascading)
 - [Kryo Serializers](https://github.com/magro/kryo-serializers) (Additional serializers for Java)
+- [Kryo Macros](https://github.com/evolution-gaming/kryo-macros) (Scala macros for compile-time generation of Kryo serializers)
 
 ## Clojure
 
@@ -626,12 +697,14 @@ Kryo can be compared to many other serialization libraries in the [JVM Serialize
 
 ## Projects using Kryo
 
-There are a number of projects using Kryo. A few are listed below. Please post a message to the [mailing list](https://groups.google.com/forum/#!forum/kryo-users) if you'd like your project included here.
+There are a number of projects using Kryo. A few are listed below. Please submit a pull request if you'd like your project included here.
 
 - [KryoNet](http://code.google.com/p/kryonet/) (NIO networking)
 - [Twitter's Scalding](https://github.com/twitter/scalding) (Scala API for Cascading)
 - [Twitter's Chill](https://github.com/twitter/chill) (Kryo serializers for Scala)
+- [Apache Fluo](https://fluo.apache.org) (Kryo is default serialization for Fluo Recipes)
 - [Apache Hive](http://hive.apache.org/) (query plan serialization)
+- [Apache Spark](http://spark.apache.org/) (shuffled/cached data serialization)
 - [DataNucleus](https://github.com/datanucleus/type-converter-kryo) (JDO/JPA persistence framework)
 - [CloudPelican](http://www.cloudpelican.com/)
 - [Yahoo's S4](http://www.s4.io/) (distributed stream computing)
@@ -648,4 +721,3 @@ There are a number of projects using Kryo. A few are listed below. Please post a
 ## Contact / Mailing list
 
 You can use the [kryo mailing list](https://groups.google.com/forum/#!forum/kryo-users) for questions/discussions/support.
-
