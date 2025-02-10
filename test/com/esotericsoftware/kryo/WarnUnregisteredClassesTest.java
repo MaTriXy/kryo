@@ -1,4 +1,4 @@
-/* Copyright (c) 2008, Nathan Sweet
+/* Copyright (c) 2008-2023, Nathan Sweet
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following
@@ -19,35 +19,32 @@
 
 package com.esotericsoftware.kryo;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.List;
+import static org.junit.jupiter.api.Assertions.*;
 
-import com.esotericsoftware.kryo.KryoTestCase.StreamFactory;
-import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
-import com.esotericsoftware.kryo.io.UnsafeMemoryInput;
-import com.esotericsoftware.kryo.io.UnsafeMemoryOutput;
 import com.esotericsoftware.minlog.Log;
 import com.esotericsoftware.minlog.Log.Logger;
 
-import junit.framework.TestCase;
+import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /** @author Tiago Albineli Motta <timotta@gmail.com> */
-public class WarnUnregisteredClassesTest extends TestCase {
-
+class WarnUnregisteredClassesTest {
 	LoggerStub log;
 
-	@Override
-	protected void setUp () throws Exception {
-		super.setUp();
+	@BeforeEach
+	public void setUp () throws Exception {
 		log = new LoggerStub();
 		Log.setLogger(log);
+		Log.INFO();
 	}
 
-	public void testLogOnlyOneTimePerClass () {
+	@Test
+	void testLogOnlyOneTimePerClass () {
 		Kryo kryo = new Kryo();
 		kryo.setRegistrationRequired(false);
 		kryo.setWarnUnregisteredClasses(true);
@@ -65,7 +62,8 @@ public class WarnUnregisteredClassesTest extends TestCase {
 		assertEquals(2, log.messages.size());
 	}
 
-	public void testDontLogIfNotRequired () {
+	@Test
+	void testDontLogIfNotRequired () {
 		Kryo kryo = new Kryo();
 		kryo.setRegistrationRequired(false);
 		kryo.setWarnUnregisteredClasses(false);
@@ -77,7 +75,8 @@ public class WarnUnregisteredClassesTest extends TestCase {
 		assertEquals(0, log.messages.size());
 	}
 
-	public void testDontLogClassIsRegistered () {
+	@Test
+	void testDontLogClassIsRegistered () {
 		Kryo kryo = new Kryo();
 		kryo.setRegistrationRequired(false);
 		kryo.setWarnUnregisteredClasses(true);
@@ -87,7 +86,8 @@ public class WarnUnregisteredClassesTest extends TestCase {
 		assertEquals(0, log.messages.size());
 	}
 
-	public void testLogShouldBeWarn () {
+	@Test
+	void testLogShouldBeWarn () {
 		Kryo kryo = new Kryo();
 		kryo.setRegistrationRequired(false);
 		kryo.setWarnUnregisteredClasses(true);
@@ -96,7 +96,8 @@ public class WarnUnregisteredClassesTest extends TestCase {
 		assertEquals(Log.LEVEL_WARN, log.levels.get(0).intValue());
 	}
 
-	public void testLogMessageShouldContainsClassName () {
+	@Test
+	void testLogMessageShouldContainClassName () {
 		Kryo kryo = new Kryo();
 		kryo.setRegistrationRequired(false);
 		kryo.setWarnUnregisteredClasses(true);
@@ -105,58 +106,47 @@ public class WarnUnregisteredClassesTest extends TestCase {
 		assertTrue(log.messages.get(0).contains(UnregisteredClass.class.getName()));
 	}
 
+	@Test
+	void testLogMessageShouldContainRegistrationHintWithCanonicalName () {
+		Kryo kryo = new Kryo();
+		kryo.setRegistrationRequired(false);
+		kryo.setWarnUnregisteredClasses(true);
+
+		write(kryo, new UnregisteredClass());
+		assertTrue(log.messages.get(0).contains(
+				"kryo.register(com.esotericsoftware.kryo.WarnUnregisteredClassesTest.UnregisteredClass.class)"
+		));
+	}
+
 	public void write (Kryo kryo, Object object) {
-		StreamFactory sf = new StreamFactory() {
-			public Output createOutput (OutputStream os) {
-				return new UnsafeMemoryOutput(os);
-			}
-
-			public Output createOutput (OutputStream os, int size) {
-				return new UnsafeMemoryOutput(os, size);
-			}
-
-			public Output createOutput (int size, int limit) {
-				return new UnsafeMemoryOutput(size, limit);
-			}
-
-			public Input createInput (InputStream os, int size) {
-				return new UnsafeMemoryInput(os, size);
-			}
-
-			public Input createInput (byte[] buffer) {
-				return new UnsafeMemoryInput(buffer);
-			}
-		};
 		ByteArrayOutputStream outStream = new ByteArrayOutputStream();
-		Output output = sf.createOutput(outStream, 4096);
+		Output output = new Output(outStream, 4096);
 		kryo.writeClassAndObject(output, object);
 		output.flush();
 	}
 
 	class LoggerStub extends Logger {
-
 		public List<Integer> levels = new ArrayList();
 		public List<String> messages = new ArrayList();
 
-		@Override
 		public void log (int level, String category, String message, Throwable ex) {
 			levels.add(level);
 			messages.add(message);
 		}
 	}
-}
 
-class UnregisteredClass {
-	public UnregisteredClass () {
+	static class UnregisteredClass {
+		public UnregisteredClass () {
+		}
 	}
-}
 
-class UnregisteredClass2 {
-	public UnregisteredClass2 () {
+	static class UnregisteredClass2 {
+		public UnregisteredClass2 () {
+		}
 	}
-}
 
-class RegisteredClass {
-	public RegisteredClass () {
+	static class RegisteredClass {
+		public RegisteredClass () {
+		}
 	}
 }
